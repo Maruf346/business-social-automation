@@ -82,8 +82,8 @@ def process_message_reply(self, incoming_message_id: int, lead_id: int, waba_id:
         # ── 5. Link Meta wamid to our outgoing message ──────────────
         wamid = MetaAPIService.extract_message_id(meta_response)
         if wamid:
-            outgoing.system_id = wamid
-            outgoing.save(update_fields=["system_id", "updated_at"])
+            outgoing.provider_message_id = wamid
+            outgoing.save(update_fields=["provider_message_id", "updated_at"])
             logger.info(
                 "Outgoing message id=%s linked to wamid=%s", outgoing.pk, wamid
             )
@@ -116,28 +116,28 @@ def process_message_reply(self, incoming_message_id: int, lead_id: int, waba_id:
 @shared_task(
     bind=True, name="core.tasks.process_status_update", max_retries=2, autoretry_for=(Exception,), retry_backoff=True, retry_backoff_max=30, retry_jitter=True, acks_late=True,
 )
-def process_status_update(self, message_system_id: str, new_status: str,) -> dict:
+def process_status_update(self, provider_message_id: str, new_status: str,) -> dict:
     from core.services.message_service import MessageService
 
     logger.info(
         "Task started: process_status_update | wamid=%s status=%s attempt=%s",
-        message_system_id,
+        provider_message_id,
         new_status,
         self.request.retries,
     )
 
     updated = MessageService.update_message_status(
-        system_id=message_system_id,
+        provider_message_id=provider_message_id,
         new_status=new_status,
     )
 
     result_status = "updated" if updated else "not_found"
     logger.info(
         "Task complete: process_status_update | wamid=%s result=%s",
-        message_system_id,
+        provider_message_id,
         result_status,
     )
-    return {"status": result_status, "wamid": message_system_id}
+    return {"status": result_status, "wamid": provider_message_id}
 # =========================================================================
 
 
@@ -204,8 +204,8 @@ def process_outlook_mail_reply(self, event, outlood, webhook_log) -> dict:
         # ── 5. Link Meta wamid to our outgoing message ──────────────
         wamid = MetaAPIService.extract_message_id(meta_response)
         if wamid:
-            outgoing.system_id = wamid
-            outgoing.save(update_fields=["system_id", "updated_at"])
+            outgoing.provider_message_id = wamid
+            outgoing.save(update_fields=["provider_message_id", "updated_at"])
             logger.info(
                 "Outgoing message id=%s linked to wamid=%s", outgoing.pk, wamid
             )

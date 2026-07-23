@@ -151,10 +151,10 @@ class OutlookWebhook(APIView):
         )
         logger.info("Webhook logged id=%s", webhook_log.pk)
 
-        # try:
-        #     WebhookOrchestrator.process_webhook(payload, webhook_log)
-        # except Exception:
-        #     logger.exception("Orchestrator raised an unhandled exception")
+        try:
+            WebhookOrchestrator.process_outlook_webhook(payload, webhook_log)
+        except Exception:
+            logger.exception("Orchestrator raised an unhandled exception")
         
         token = request.GET.get("validationToken")
         return Response(

@@ -69,47 +69,49 @@ class WebhookOrchestrator:
             outlood = WebhookOrchestrator._resolve_outlood_account()
         except OutlookAccountNotFoundError:
             logger.warning(
-                "No WhatsAppAccount for phone_id=%s waba_id=%s — skipping",
+                "No Outlook Account for phone_id=%s waba_id=%s — skipping",
                 event.phone_number_id,
                 event.waba_id,
             )
             return
 
-        WebhookOrchestrator._outlood_message_handle(event, outlood, webhook_log)
+        WebhookOrchestrator._outlood_mail_handle(event, outlood, webhook_log)
 
 
     # ------------------------------------------------------------------
     # Message flow
     @staticmethod
-    def _outlood_message_handle(event: OutlookWebhookParsedEvent, outlood: OutlookAccount, webhook_log: WebhookLog,) -> None:
+    def _outlood_mail_handle(event: OutlookWebhookParsedEvent, outlood: OutlookAccount, webhook_log: WebhookLog,) -> None:
         message_id = event.message_id
         assert message_id is not None
         try:
+            print("ok")
             # ── Synchronous: quick DB writes ────────────────────────────
-            lead = MessageService.get_or_create_lead(
-                phone_number=parsed_msg.sender_phone,
-                name=parsed_msg.sender_name,
-            )
-            incoming = MessageService.save_incoming_message(lead, parsed_msg)
-            MessageService.update_lead_last_message(lead, incoming)
+            # lead = MessageService.get_or_create_lead(
+            #     phone_number=parsed_msg.sender_phone,
+            #     name=parsed_msg.sender_name,
+            # )
+            # incoming = MessageService.save_incoming_message(lead, parsed_msg)
+            # MessageService.update_lead_last_message(lead, incoming)
 
-            # ── Async: dispatch heavy I/O to Celery ─────────────────────
-            from core.tasks import process_outlook_mail_reply
-            ss = process_outlook_mail_reply.delay(
-                event=event,
-                outlood=outlood,
-                webhook_log=webhook_log
-            )
-            logger.info(
-                "Dispatched outlook reply task",
-                # "Starting process outlook reply task for lead=%s incoming_msg=%s",
-                # lead.pk,
-                # incoming.pk,
-            )
+            # # ── Async: dispatch heavy I/O to Celery ─────────────────────
+            # from core.tasks import process_outlook_mail_reply
+            # ss = process_outlook_mail_reply.delay(
+            #     event=event,
+            #     outlood=outlood,
+            #     webhook_log=webhook_log
+            # )
+            # logger.info(
+            #     "Dispatched outlook reply task",
+            #     # "Starting process outlook reply task for lead=%s incoming_msg=%s",
+            #     # lead.pk,
+            #     # incoming.pk,
+            # )
         except Exception:
             logger.exception(
-                "Unhandled error in message handler for wamid=%s",
-                parsed_msg.message_id,
+                "Unhandled error in message handler for wamid",
+                # "Unhandled error in message handler for wamid=%s",
+                # parsed_msg.message_id,
             )
     
     @staticmethod
@@ -159,7 +161,7 @@ class WebhookOrchestrator:
             from core.tasks import process_status_update
 
             process_status_update.delay(
-                message_system_id=parsed_status.message_id,
+                provider_message_id=parsed_status.message_id,
                 new_status=parsed_status.status,
             )
             logger.info(
@@ -189,7 +191,7 @@ class WebhookOrchestrator:
             )
         return account
 
-    def _resolve_outlood_account():
+    def _resolve_outlood_account() -> OutlookAccount:
         account = OutlookAccount.objects.first()
         if account is None:
             raise WhatsAppAccountNotFoundError(

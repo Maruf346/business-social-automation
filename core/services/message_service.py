@@ -56,7 +56,7 @@ class MessageService:
         )
 
         message = Message.objects.create(
-            system_id=parsed.message_id,
+            provider_message_id=parsed.message_id,
             lead=lead,
             send_by=SEND_BY.CLIENT,
             direction=MESSAGE_DIRECTION.INCOMING,
@@ -81,10 +81,10 @@ class MessageService:
     def save_outgoing_message(
         lead: Lead,
         content: str,
-        system_id: str = "",
+        provider_message_id: str = "",
     ) -> Message:
         message = Message.objects.create(
-            system_id=system_id,
+            provider_message_id=provider_message_id,
             lead=lead,
             send_by=SEND_BY.AI,
             direction=MESSAGE_DIRECTION.OUTGOING,
@@ -101,7 +101,7 @@ class MessageService:
     # Status updates
     # ------------------------------------------------------------------
     @staticmethod
-    def update_message_status(system_id: str, new_status: str) -> bool:
+    def update_message_status(provider_message_id: str, new_status: str) -> bool:
         status_map: dict[str, str] = {
             "sent": MESSAGE_STATUS.SENT,
             "delivered": MESSAGE_STATUS.DELIVERED,
@@ -110,19 +110,19 @@ class MessageService:
         }
         resolved = status_map.get(new_status)
         if resolved is None:
-            logger.warning("Unknown status '%s' for wamid=%s", new_status, system_id)
+            logger.warning("Unknown status '%s' for wamid=%s", new_status, provider_message_id)
             return False
 
-        updated = Message.objects.filter(system_id=system_id).update(status=resolved)
+        updated = Message.objects.filter(provider_message_id=provider_message_id).update(status=resolved)
 
         # If the status is READ, also flip the `read` boolean
         if resolved == MESSAGE_STATUS.READ and updated:
-            Message.objects.filter(system_id=system_id).update(read=True)
+            Message.objects.filter(provider_message_id=provider_message_id).update(read=True)
 
         if updated:
-            logger.info("Updated message wamid=%s → %s", system_id, resolved)
+            logger.info("Updated message wamid=%s → %s", provider_message_id, resolved)
         else:
-            logger.warning("No message found for wamid=%s", system_id)
+            logger.warning("No message found for wamid=%s", provider_message_id)
         return bool(updated)
 
     # ------------------------------------------------------------------
