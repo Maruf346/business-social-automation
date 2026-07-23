@@ -1,0 +1,36 @@
+# Python files
+__pycache__/
+*.pyc
+*.pyo
+
+# Django-specific
+*.log
+*.pot
+*.py[cod]
+db.sqlite3
+media/
+staticfiles/
+static/
+
+# Environment variables
+.env
+
+# VSCode and IDE folders
+.vscode/
+.idea/
+
+
+# macOS files
+.DS_Store
+
+
+#Hosting important File
+passenger_wsgi.py
+stderr.log
+.ftpquota
+
+public/
+tmp/
+env/
+restart.txt
+
