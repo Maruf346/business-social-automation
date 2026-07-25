@@ -173,6 +173,17 @@ class OutlookWebhook(APIView):
             return x_forwarded_for.split(",")[0].strip()
         return request.META.get("REMOTE_ADDR", "")
 
+class TelegramWebhook(APIView):
+    authentication_classes = []
+    permission_classes = []
+
+    def post(self, request):
+        print(request.data)
+        return Response({"ok": True})
+    
+    def get(self, request):
+        print(request.data)
+        return Response({"ok": True})
 
 # @method_decorator(csrf_exempt, name="dispatch")
 # class OutlookWebhook(View):

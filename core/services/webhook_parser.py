@@ -16,7 +16,6 @@ class WebhookEventType(str, Enum):
 
 # ---------------------------------------------------------------------------
 # Parser
-# ---------------------------------------------------------------------------
 @dataclass(frozen=True, slots=True)
 class ParsedMessage:
     sender_phone: str
@@ -26,6 +25,8 @@ class ParsedMessage:
     timestamp: str  # Unix timestamp string
     message_type: str  # text, image, audio, …
     body: str  # text body (empty string for non-text)
+    media_id: str = ""  # Meta media ID (for image/audio/video/document)
+    media_mime_type: str = ""  # MIME type of the media
     raw: dict = field(repr=False, default_factory=dict)
 
 
@@ -47,6 +48,7 @@ class ParsedWebhookEvent:
     message: Optional[ParsedMessage] = None
     status: Optional[ParsedStatus] = None
 
+
 @dataclass(frozen=True, slots=True)
 class OutlookWebhookParsedEvent:
     event_type: WebhookEventType
@@ -57,8 +59,6 @@ class OutlookWebhookParsedEvent:
     tenant_id: str
     client_state: str
 
-# ---------------------------------------------------------------------------
-# Parser
 # ---------------------------------------------------------------------------
 
 
@@ -77,13 +77,13 @@ class WebhookParser:
                 f"Payload missing required top-level fields: {exc}"
             ) from exc
 
-        # ── Incoming message ────────────────────────────────────────────
+        # Incoming message ──────────────────
         if "messages" in change_value:
             return WebhookParser._parse_message_event(
                 change_value, phone_number_id, waba_id, display_phone_number
             )
 
-        # ── Status update ───────────────────────────────────────────────
+        # Status update ──────────────────
         if "statuses" in change_value:
             return WebhookParser._parse_status_event(
                 change_value, phone_number_id, waba_id, display_phone_number
@@ -116,8 +116,7 @@ class WebhookParser:
             client_state=client_state
         )
     
-    # ── Private helpers ─────────────────────────────────────────────────
-
+    # Private helpers ──────────────────
     @staticmethod
     def _parse_message_event(value: dict, phone_number_id: str, waba_id: str, display_phone_number: str,) -> ParsedWebhookEvent:
         try:
@@ -125,9 +124,19 @@ class WebhookParser:
             msg = value["messages"][0]
 
             body = ""
+            media_id = ""
+            media_mime_type = ""
             msg_type = msg.get("type", "text")
+
             if msg_type == "text":
                 body = msg.get("text", {}).get("body", "")
+            elif msg_type in ("image", "audio", "video", "document"):
+                # Extract media metadata from the type-specific dict
+                media_data: dict = msg.get(msg_type, {})
+                media_id = media_data.get("id", "")
+                media_mime_type = media_data.get("mime_type", "")
+                # Use caption as body text (images/videos can have captions)
+                body = media_data.get("caption", "")
 
             parsed_msg = ParsedMessage(
                 sender_phone=msg["from"],
@@ -137,6 +146,8 @@ class WebhookParser:
                 timestamp=msg["timestamp"],
                 message_type=msg_type,
                 body=body,
+                media_id=media_id,
+                media_mime_type=media_mime_type,
                 raw=msg,
             )
         except (KeyError, IndexError, TypeError) as exc:

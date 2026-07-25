@@ -188,6 +188,7 @@ STATICFILES_DIRS = [BASE_DIR / "static"]
 
 MEDIA_URL = 'media/'
 MEDIA_ROOT = os.getenv('MEDIA_ROOT', default=os.path.join(BASE_DIR, 'media'))
+MEDIA_BASE_URL = os.getenv('MEDIA_BASE_URL', 'https://55k6tr24-8007.inc1.devtunnels.ms/media/')
 # =================Static & Media Config================================
 # ==========================================================================================
 
@@ -227,6 +228,8 @@ AI_SERVICE = {
     "TIMEOUT": int(os.getenv("AI_API_TIMEOUT", "30")),
     "CHAT_HISTORY_LIMIT": int(os.getenv("AI_CHAT_HISTORY_LIMIT", "20")),
 }
+
+TELEGRAM_BOT_TOKEN=os.getenv("TELEGRAM_BOT_TOKEN")
 # =================AI Service Config================================
 # ==========================================================================================
 

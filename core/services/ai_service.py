@@ -13,7 +13,6 @@ from lead.models import Lead, Message
 
 logger = logging.getLogger(__name__)
 
-# Fallback when the AI service is unreachable / returns garbage
 _FALLBACK_REPLY = (
     "Thank you for your message! Our team is currently reviewing your "
     "request and will get back to you shortly. 🙏"
@@ -24,12 +23,11 @@ class AIService:
     def __init__(self) -> None:
         ai_cfg: dict = getattr(settings, "AI_SERVICE", {})
         self._url: str = ai_cfg.get("API_URL", "http://10.10.28.89:8001/api/v1/inquiries/analyze")
+        self.summery_url: str = "http://10.10.28.89:8001/api/v1/inquiries/telegram-summary"
         self._timeout: int = ai_cfg.get("TIMEOUT", 30)
 
-    # ------------------------------------------------------------------
     # Public API
-    # ------------------------------------------------------------------
-    def get_reply(self, current_message: str, chat_history: QuerySet[Message], lead: Lead, image_urls: Optional[list[str]] = None,) -> str:
+    def get_reply(self, current_message: str, chat_history: QuerySet[Message], lead: Lead, image_urls: Optional[list[str]] = None,):
         if not self._url:
             logger.error("AI_SERVICE.API_URL is not configured; using fallback reply.")
             return _FALLBACK_REPLY
@@ -82,11 +80,23 @@ class AIService:
             )
 
         logger.info("Received AI draft_reply for lead=%s (len=%d)", lead.pk, len(draft_reply))
-        return draft_reply
+        print("**********Meta Response*********: ", data)
+        # return draft_reply
+        return data
 
-    # ------------------------------------------------------------------
+    def get_summery(self, chat_history: QuerySet[Message], lead: Lead):
+        payload = self._build_payload("", chat_history, lead)
+        response = requests.post(
+            self.summery_url,
+            json=payload,
+            headers={"Content-Type": "application/json"},
+            timeout=self._timeout,
+        )
+        response.raise_for_status()
+        data: dict = response.json()
+        return data
+
     # Payload builder
-    # ------------------------------------------------------------------
     @staticmethod
     def _build_payload(current_message: str,chat_history: QuerySet[Message],lead: Lead,image_urls: Optional[list[str]] = None,) -> dict:
         history: list[dict[str, str]] = []
@@ -98,7 +108,6 @@ class AIService:
             )
             history.append({"role": role, "content": msg.content or ""})
 
-        # Minimal lead profile as db state context
         existing_db_state: dict = {
             "lead_id": lead.pk,
             "lead_name": lead.name or "",
