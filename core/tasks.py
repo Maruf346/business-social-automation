@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 import time
 
-from celery import shared_task
+from celery import chain, shared_task
 
 from core.exceptions import (
     AIServiceError,
@@ -11,6 +11,13 @@ from core.exceptions import (
     MetaAPIError,
     OutlookAPIError,
 )
+from core.services.ai_service import AIService
+from core.services.message_service import MessageService
+from core.services.outlook_api import OutlookAPIService, OutlookAPIError
+from core.models import OutlookAccount
+from lead.models import Lead, Conversation, Message
+from core.services.media_service import MediaService, MediaDownloadError
+from lead.choices import MESSAGE_STATUS
 
 logger = logging.getLogger(__name__)
 
@@ -33,12 +40,7 @@ _AI_FALLBACK_REPLY = (
 )
 def process_message_reply(self, incoming_message_id: int, lead_id: int, waba_id: int, sender_phone: str, current_message_body: str, media_id: str = "", media_mime_type: str = "",) -> dict:
     from core.models import WhatsAppAccount
-    from core.services.ai_service import AIService
-    from core.services.media_service import MediaService
-    from core.services.message_service import MessageService
     from core.services.meta_api import MetaAPIService
-    from lead.choices import MESSAGE_STATUS
-    from lead.models import Lead, Message
 
     logger.info(
         "Task started: process_message_reply | lead=%s msg=%s attempt=%s media=%s",
@@ -188,8 +190,6 @@ def process_message_reply(self, incoming_message_id: int, lead_id: int, waba_id:
     acks_late=True,
 )
 def process_status_update(self, provider_message_id: str, new_status: str) -> dict:
-    from core.services.message_service import MessageService
-
     logger.info(
         "Task started: process_status_update | wamid=%s status=%s attempt=%s",
         provider_message_id, new_status, self.request.retries,
@@ -212,46 +212,57 @@ def process_status_update(self, provider_message_id: str, new_status: str) -> di
 
 # =========================================================================
 # Outlook: Fetch email, AI reply, send threaded response
-@shared_task(
-    bind=True,
-    name="core.tasks.process_outlook_mail_reply",
-    max_retries=3,
-    autoretry_for=(OutlookAPIError, ConnectionError, TimeoutError),
-    retry_backoff=True,
-    retry_backoff_max=60,
-    retry_jitter=True,
-    acks_late=True,
-)
-def process_outlook_mail_reply(self, outlook_account_id: int, message_id: str, resource: str, webhook_log_id: int,) -> dict:
-    from core.models import OutlookAccount
-    from core.services.ai_service import AIService
-    from core.services.media_service import MediaService
-    from core.services.message_service import MessageService
-    from core.services.outlook_api import OutlookAPIService
-    from lead.choices import MESSAGE_STATUS
+from celery.utils.log import get_task_logger
+logger = get_task_logger(__name__)
 
-    logger.info(
-        "Task started: process_outlook_mail_reply | msg_id=%s attempt=%s",
-        message_id, self.request.retries,
+# MAIN TASK: Start the Pipeline
+@shared_task(name="core.tasks.process_outlook_mail_reply")
+def process_outlook_mail_reply(outlook_account_id: int, message_id: str, resource: str, webhook_log_id: int):
+    workflow = chain(
+        step1_fetch_and_save_email.s(outlook_account_id, message_id, resource, webhook_log_id),
+        step2_generate_ai_reply.s(),
+        step3_send_outlook_reply.s()
     )
+    workflow.apply_async()
+    logger.info("Pipeline triggered for message_id=%s", message_id)
 
-    # Re-fetch Outlook account ───────────────────────
+# STAGE 1: Fetch Email, Extract Data & Save Incoming
+@shared_task(
+    bind=True, name="core.tasks.step1_fetch_and_save_email",
+    max_retries=3, autoretry_for=(ConnectionError, TimeoutError),
+    retry_backoff=True, retry_backoff_max=60, retry_jitter=True, acks_late=True
+)
+def step1_fetch_and_save_email(self, outlook_account_id: int, message_id: str, resource: str, webhook_log_id: int) -> dict:    
+    logger.info("Stage 1 started: Fetch & Save | msg_id=%s attempt=%s", message_id, self.request.retries)
+
+    if Message.objects.filter(provider_message_id=message_id).exists():
+        logger.info("Message %s already processed. Skipping duplicate webhook.", message_id)
+        return {"pipeline_status": "skipped", "reason": "already_processed"}
+
     try:
         outlook_account = OutlookAccount.objects.get(pk=outlook_account_id)
     except OutlookAccount.DoesNotExist as exc:
         logger.error("OutlookAccount id=%s not found — aborting", outlook_account_id)
-        return {"status": "aborted", "reason": str(exc)}
+        return {"pipeline_status": "aborted", "reason": str(exc)}
 
-    # Extract user_id from resource ───────────────────────
     outlook_svc = OutlookAPIService(outlook_account)
     try:
         user_id = OutlookAPIService.extract_user_id_from_resource(resource)
     except OutlookAPIError as exc:
         logger.error("Cannot extract user_id: %s", exc)
-        return {"status": "aborted", "reason": str(exc)}
+        return {"pipeline_status": "aborted", "reason": str(exc)}
 
-    # Fetch full email message ───────────────────────
-    email_data = outlook_svc.fetch_message(user_id, message_id)
+    # Fetch full email message
+    try:
+        email_data = outlook_svc.fetch_message(user_id, message_id)
+    except OutlookAPIError as exc:
+        # ErrorItemNotFound ফিক্স (Deleted বা Missing মেইলের ক্ষেত্রে abort করা)
+        if "ErrorItemNotFound" in str(exc) or getattr(exc, 'status_code', None) == 404:
+            logger.warning("Message %s not found in Outlook (might be deleted/moved). Aborting pipeline.", message_id)
+            return {"pipeline_status": "aborted", "reason": "ErrorItemNotFound"}
+        
+        # অন্য কোনো API Error হলে retry করবে
+        raise self.retry(exc=exc)
 
     sender_info = email_data.get("from", {}).get("emailAddress", {})
     sender_email = sender_info.get("address", "")
@@ -264,12 +275,12 @@ def process_outlook_mail_reply(self, outlook_account_id: int, message_id: str, r
     internet_message_id = email_data.get("internetMessageId", "")
     has_attachments = email_data.get("hasAttachments", False)
 
-    # Ignore emails sent by our own business mailbox (avoid reply loops)
+    # Ignore self-sent emails
     if sender_email.lower() == outlook_account.business_mail.lower():
         logger.info("Ignoring self-sent email from %s", sender_email)
-        return {"status": "skipped", "reason": "self_sent"}
+        return {"pipeline_status": "skipped", "reason": "self_sent"}
 
-    # Strip HTML to plain text for AI
+    # Strip HTML to plain text
     if body_type.lower() == "html":
         body_text = OutlookAPIService.strip_html_to_text(body_content)
         html_content = body_content
@@ -277,129 +288,203 @@ def process_outlook_mail_reply(self, outlook_account_id: int, message_id: str, r
         body_text = body_content
         html_content = ""
 
-    # Get/create Lead by email ───────────────────────
-    lead = MessageService.get_or_create_email_lead(
-        email=sender_email,
-        name=sender_name,
-    )
-
-    # Get/create Conversation ───────────────────────
+    # DB Operations
+    lead = MessageService.get_or_create_email_lead(email=sender_email, name=sender_name)
     conversation = MessageService.get_or_create_conversation(
-        lead=lead,
-        conversation_id=conversation_id,
-        subject=subject,
+        lead=lead, conversation_id=conversation_id, subject=subject
     )
-
-    # Save incoming email ───────────────────────
     incoming = MessageService.save_email_message(
-        lead=lead,
-        conversation=conversation,
-        subject=subject,
-        body_text=body_text,
-        html_content=html_content,
-        provider_message_id=message_id,
-        internet_message_id=internet_message_id,
-        conversation_message_id=conversation_id,
-        raw_payload=email_data,
+        lead=lead, conversation=conversation, subject=subject,
+        body_text=body_text, html_content=html_content,
+        provider_message_id=message_id, internet_message_id=internet_message_id,
+        conversation_message_id=conversation_id, raw_payload=email_data,
     )
     MessageService.update_lead_last_message(lead, incoming)
 
-    # Download attachments (images only → AI) ───────────────────────
+    # Download attachments
     image_urls: list[str] = []
     if has_attachments:
         try:
             attachments = outlook_svc.fetch_attachments(user_id, message_id)
             for att in attachments:
                 try:
-                    result = MediaService.save_outlook_attachment(
-                        attachment=att,
-                        message=incoming,
-                    )
+                    result = MediaService.save_outlook_attachment(attachment=att, message=incoming)
                     if result and MediaService.is_image_mime(att.get("contentType", "")):
                         image_urls.append(result.public_url)
                 except MediaDownloadError:
-                    logger.exception(
-                        "Failed to save attachment '%s' — skipping",
-                        att.get("name", "unknown"),
-                    )
+                    logger.exception("Failed to save attachment '%s' — skipping", att.get("name", "unknown"))
         except OutlookAPIError:
-            logger.exception(
-                "Failed to fetch attachments for msg_id=%s — continuing without",
-                message_id,
-            )
+            logger.exception("Failed to fetch attachments for msg_id=%s — continuing without", message_id)
 
-    # Fetch conversation history (threaded) ───────────────────────
+    return {
+        "pipeline_status": "continue",
+        "lead_id": lead.pk,
+        "conversation_id": conversation.pk,
+        "incoming_text": body_text,
+        "subject": subject,
+        "user_id": user_id,
+        "message_id": message_id,
+        "image_urls": image_urls,
+        "outlook_account_id": outlook_account_id
+    }
+
+# STAGE 2: Generate AI Reply & Save Draft
+@shared_task(
+    bind=True,
+    name="core.tasks.step2_generate_ai_reply",
+    max_retries=3,
+    retry_backoff=True,
+    retry_backoff_max=60,
+    retry_jitter=True,
+    acks_late=True,
+)
+def step2_generate_ai_reply(self, pipeline_data: dict) -> dict:
+    if pipeline_data.get("pipeline_status") != "continue":
+        logger.info("Stage 2 skipped due to pipeline status: %s", pipeline_data.get("pipeline_status"))
+        return pipeline_data
+
+    lead_id = pipeline_data["lead_id"]
+    conversation_id = pipeline_data["conversation_id"]
+    
+    lead = Lead.objects.get(pk=lead_id)
+    conversation = Conversation.objects.get(pk=conversation_id)
     history = MessageService.get_conversation_history(conversation)
 
-    # Call AI API ───────────────────────
+    logger.info("Stage 2 started: AI Generate | conv_id=%s attempt=%s", conversation_id, self.request.retries)
+
     try:
         ai_svc = AIService()
         reply_text = ai_svc.get_reply(
-            current_message=body_text,
+            current_message=pipeline_data["incoming_text"],
             chat_history=history,
             lead=lead,
-            image_urls=image_urls if image_urls else None,
+            image_urls=pipeline_data.get("image_urls") or None,
         )
         draft_reply: str = reply_text.get("draft_reply", "")
-    except AIServiceError as exc:
+    except Exception as exc: # Replace Exception with AIServiceError if appropriately imported
         if self.request.retries < self.max_retries:
-            logger.warning(
-                "AI failed for Outlook. Retrying... (%s/%s)",
-                self.request.retries + 1, self.max_retries,
-            )
+            logger.warning("AI failed for Outlook. Retrying... (%s/%s)", self.request.retries + 1, self.max_retries)
             raise self.retry(exc=exc, countdown=2 ** self.request.retries)
-        logger.warning(
-            "AI failed after %s retries. Using fallback reply.",
-            self.request.retries,
-        )
-        draft_reply = _AI_FALLBACK_REPLY
+        
+        logger.warning("AI failed after %s retries. Using fallback reply.", self.request.retries)
+        draft_reply = getattr(self, '_AI_FALLBACK_REPLY', "Thank you for your message. We will get back to you shortly.")
 
-    # Save outgoing email reply ───────────────────────
+    risk_level = reply_text.get("risk_level", "low")
+    pipeline_data["risk_level"] = risk_level
+    if risk_level == "high":
+        # Prepare the Client Summery====
+        reply_summery = ai_svc.get_summery(chat_history=history, lead=lead, current_message=pipeline_data["incoming_text"])
+        summary = reply_summery.get("summary", "")
+        # draft_reply = reply_summery.get("draft_reply", "")
+        # telegram_message = reply_summery.get("telegram_message", "")
+
+        pipeline_data["summary"] = summary
+        # pipeline_data["pipeline_status"] = "stop"
+        return pipeline_data
+
+    # Save outgoing draft
     reply_html = OutlookAPIService.text_to_html(draft_reply)
     outgoing = MessageService.save_outgoing_email(
         lead=lead,
         conversation=conversation,
-        subject=subject,
+        subject=pipeline_data["subject"],
         content=draft_reply,
         html_content=reply_html,
     )
 
-    # Send reply in the same thread ───────────────────────
-    try:
-        outlook_svc.send_reply(
-            user_id=user_id,
-            message_id=message_id,
-            body_html=reply_html,
-        )
-        logger.info(
-            "Outlook reply sent for email id=%s lead=%s conv=%s",
-            message_id, lead.pk, conversation.pk,
-        )
-    except OutlookAPIError:
-        if self.request.retries >= self.max_retries:
-            logger.exception(
-                "Graph API reply failed after %s retries for msg_id=%s",
-                self.request.retries, message_id,
-            )
-            outgoing.status = MESSAGE_STATUS.FAILED
-            outgoing.error_message = "Graph API reply send failed after retries"
-            outgoing.save(update_fields=["status", "error_message", "updated_at"])
-            return {"status": "failed", "outgoing_message_id": outgoing.pk}
-        else:
-            raise  # autoretry handles it
+    pipeline_data["outgoing_message_id"] = outgoing.pk
+    pipeline_data["reply_html"] = reply_html
+    return pipeline_data
 
-    # Update conversation last_message_at
+# STAGE 3: Send Outlook Reply
+@shared_task(
+    bind=True,
+    name="core.tasks.step3_send_outlook_reply",
+    max_retries=3,
+    autoretry_for=(ConnectionError, TimeoutError),
+    retry_backoff=True,
+    retry_backoff_max=60,
+    retry_jitter=True,
+    acks_late=True,
+)
+def step3_send_outlook_reply(self, pipeline_data: dict) -> dict:
     from django.utils import timezone as tz
-    conversation.last_message_at = tz.now()
-    conversation.save(update_fields=["last_message_at", "updated_at"])
+    if pipeline_data.get("pipeline_status") != "continue":
+        logger.info("Stage 3 skipped due to pipeline status: %s", pipeline_data.get("pipeline_status"))
+        return pipeline_data
 
-    logger.info("Task complete: process_outlook_mail_reply | msg_id=%s", message_id)
-    return {
-        "status": "success",
-        "outgoing_message_id": outgoing.pk,
-        "lead_id": lead.pk,
-        "image_urls": image_urls,
-    }
+    outlook_account = OutlookAccount.objects.get(pk=pipeline_data["outlook_account_id"])
+    outlook_svc = OutlookAPIService(outlook_account)
+    user_id = pipeline_data["user_id"]
+    message_id = pipeline_data["message_id"]
+
+    logger.info("Stage 3 started: Send Reply | msg_id=%s attempt=%s", message_id, self.request.retries)
+
+    risk_level = pipeline_data.get("risk_level", "low")
+    if risk_level == "high":
+        summary = pipeline_data.get("summary")
+        try:
+            outlook_svc.send_reply(
+                user_id=user_id,
+                message_id=message_id,
+                body_html=(
+                    "Thank you for your message. "
+                    "Our team is reviewing your request. "
+                    "We'll get back to you shortly."
+                )
+            )
+            logger.info("Outlook reply sent for email id=%s", message_id)
+        except Exception:
+            logger.exception("Failed to send waiting message.")
+
+        # Send message in Telegram Group for Confimration====
+        from .services.telegram_bot_service import TelegramBotService
+        telegram = TelegramBotService()
+        telegram.send_message(
+            chat_id=8145617629,
+            text=summary,
+        )
+        logger.exception("Waiting for human approval.")
+        return {
+            "status": "success",
+            "message": "waiting_for_human_approval",
+            "lead_id": pipeline_data["lead_id"],
+            "image_urls": pipeline_data.get("image_urls", []),
+        }
+    elif risk_level == "low":
+        # Load Outgoing instance to update status on failure
+        outgoing_id = pipeline_data["outgoing_message_id"]
+        outgoing = Message.objects.get(pk=outgoing_id) 
+
+        try:
+            outlook_svc.send_reply(
+                user_id=user_id,
+                message_id=message_id,
+                body_html=pipeline_data["reply_html"],
+            )
+            logger.info("Outlook reply sent for email id=%s", message_id)
+        except OutlookAPIError as exc:
+            if self.request.retries >= self.max_retries:
+                logger.exception("Graph API reply failed after %s retries for msg_id=%s", self.request.retries, message_id)
+                outgoing.status = MESSAGE_STATUS.FAILED
+                outgoing.error_message = "Graph API reply send failed after retries"
+                outgoing.save(update_fields=["status", "error_message", "updated_at"])
+                return {"status": "failed", "outgoing_message_id": outgoing.pk}
+            else:
+                raise self.retry(exc=exc) # Handled by autoretry
+
+        # Update conversation
+        conversation = Conversation.objects.get(pk=pipeline_data["conversation_id"])
+        conversation.last_message_at = tz.now()
+        conversation.save(update_fields=["last_message_at", "updated_at"])
+
+        logger.info("Pipeline complete successfully | msg_id=%s", message_id)
+        return {
+            "status": "success",
+            "outgoing_message_id": outgoing.pk,
+            "lead_id": pipeline_data["lead_id"],
+            "image_urls": pipeline_data.get("image_urls", []),
+        }
 
 # =========================================================================
 

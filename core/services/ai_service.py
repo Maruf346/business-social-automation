@@ -84,8 +84,8 @@ class AIService:
         # return draft_reply
         return data
 
-    def get_summery(self, chat_history: QuerySet[Message], lead: Lead):
-        payload = self._build_payload("", chat_history, lead)
+    def get_summery(self, chat_history: QuerySet[Message], lead: Lead, current_message=""):
+        payload = self._build_payload(current_message, chat_history, lead)
         response = requests.post(
             self.summery_url,
             json=payload,
