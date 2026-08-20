@@ -8,6 +8,7 @@ from django.http import HttpResponse
 from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, OpenApiTypes, extend_schema
 from django.views import View
 from django.http import HttpResponse
 from django.views.decorators.csrf import csrf_exempt
@@ -25,6 +26,17 @@ class WhatsappWebhook(APIView):
 
     # ------------------------------------------------------------------
     # GET — Meta verification handshake
+    @extend_schema(
+        parameters=[
+            OpenApiParameter("hub.mode", OpenApiTypes.STR, OpenApiParameter.QUERY),
+            OpenApiParameter("hub.verify_token", OpenApiTypes.STR, OpenApiParameter.QUERY),
+            OpenApiParameter("hub.challenge", OpenApiTypes.STR, OpenApiParameter.QUERY),
+        ],
+        responses={
+            200: OpenApiResponse(response=OpenApiTypes.STR, description="Meta verification challenge"),
+            403: OpenApiResponse(response=OpenApiTypes.STR, description="Invalid verification token"),
+        },
+    )
     def get(self, request, *args, **kwargs) -> HttpResponse:
         mode = request.query_params.get("hub.mode")
         token = request.query_params.get("hub.verify_token")
@@ -41,6 +53,13 @@ class WhatsappWebhook(APIView):
 
     # ------------------------------------------------------------------
     # POST — incoming webhook events
+    @extend_schema(
+        request=OpenApiTypes.OBJECT,
+        responses={
+            200: OpenApiResponse(response=OpenApiTypes.OBJECT, description="Webhook accepted"),
+            403: OpenApiResponse(response=OpenApiTypes.OBJECT, description="Invalid signature"),
+        },
+    )
     def post(self, request, *args, **kwargs) -> Response:
         if not self._verify_signature(request):
             logger.warning("HMAC signature verification failed — ignoring payload")
@@ -119,6 +138,15 @@ class OutlookWebhook(APIView):
     authentication_classes: list = []
     permission_classes: list = []
 
+    @extend_schema(
+        parameters=[
+            OpenApiParameter("validationToken", OpenApiTypes.STR, OpenApiParameter.QUERY),
+        ],
+        responses={
+            200: OpenApiResponse(response=OpenApiTypes.STR, description="Outlook validation token"),
+            400: OpenApiResponse(description="Missing validation token"),
+        },
+    )
     def get(self, request, *args, **kwargs):
         token = request.GET.get("validationToken")
         if token:
@@ -127,6 +155,15 @@ class OutlookWebhook(APIView):
     
     # ------------------------------------------------------------------
     # POST — incoming webhook events
+    @extend_schema(
+        request=OpenApiTypes.OBJECT,
+        parameters=[
+            OpenApiParameter("validationToken", OpenApiTypes.STR, OpenApiParameter.QUERY),
+        ],
+        responses={
+            200: OpenApiResponse(response=OpenApiTypes.OBJECT, description="Webhook accepted"),
+        },
+    )
     def post(self, request, *args, **kwargs) -> Response:
         # Parse body
         raw_body = request.body.decode("utf-8", errors="ignore")
@@ -177,10 +214,17 @@ class TelegramWebhook(APIView):
     authentication_classes = []
     permission_classes = []
 
+    @extend_schema(
+        request=OpenApiTypes.OBJECT,
+        responses={200: OpenApiResponse(response=OpenApiTypes.OBJECT, description="Webhook accepted")},
+    )
     def post(self, request):
         print(request.data)
         return Response({"ok": True})
     
+    @extend_schema(
+        responses={200: OpenApiResponse(response=OpenApiTypes.OBJECT, description="Webhook health response")},
+    )
     def get(self, request):
         print(request.data)
         return Response({"ok": True})

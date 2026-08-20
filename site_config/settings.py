@@ -23,7 +23,7 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
 
     # library app
-    'rest_framework', 'rest_framework_simplejwt',
+    'rest_framework', 'drf_spectacular', 'rest_framework_simplejwt',
     'corsheaders', 'django_extensions', 'django_filters',
     'rest_framework_simplejwt.token_blacklist', 'django_json_widget', 'django_celery_results',
 
