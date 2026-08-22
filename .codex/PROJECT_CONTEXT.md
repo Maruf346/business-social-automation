@@ -89,34 +89,43 @@ Key flows:
 
 ## AI Service Contract
 
-The backend currently expects an AI analysis endpoint that accepts:
+The detailed AI contract lives in `AI_INTEGRATION_CONTRACT.md`.
+
+The backend calls:
+
+- `POST /api/v1/inquiries/analyze`
+- `POST /api/v1/inquiries/telegram-summary`
+
+The analysis endpoint accepts:
 
 - `current_message`
 - `new_image_urls`
 - `existing_db_state`
 - `recent_chat_history`
 
-The backend currently expects at least:
+The analysis endpoint returns updated structured intake fields:
 
+- `tattoo_idea`
+- `style_tags`
+- `placement`
+- `size_estimate_cm`
+- `color_preference`
+- `suggested_artist`
+- `confidence_level`
+- `ai_reasoning`
+- `missing_information`
+- `risk_level`
 - `draft_reply`: proposed client-facing reply.
-- `risk_level`: currently handled as `low` or `high`.
 
 The backend also calls a summary endpoint for Telegram/human review. The summary endpoint is configured with `AI_SUMMARY_API_URL` and should be finalized with the AI engineer.
 
 Telegram review messages are sent to the chat configured by `TELEGRAM_REVIEW_CHAT_ID`.
 
-Recommended next contract fields for Milestone 2:
+Important implementation rule:
 
-- `extracted_details`
-- `missing_information`
-- `suggested_artist`
-- `artist_confidence`
-- `risk_level`
-- `risk_reason`
-- `draft_reply`
-- `internal_price_estimate`
-- `style_tags`
-- `reference_image_findings`
+- The backend database must store the latest structured intake state returned by AI after every message.
+- That stored state must be sent back to AI as `existing_db_state` on the next message.
+- This is how AI knows what is already known and what is still missing.
 
 ## Human Roles
 

@@ -56,19 +56,36 @@ Next:
 - Confirm the final deployed AWS endpoint paths.
 - Validate response shape before Milestone 2 decision persistence work.
 
-### AI Service Contract Is Implicit
+### AI State Persistence Not Implemented Yet
 
-Backend assumes fields such as `draft_reply` and `risk_level`.
+The AI service returns updated structured intake fields after every analysis call, but the backend does not yet persist those fields into a canonical intake-state model.
 
 Impact:
 
-- AI/backend integration can break silently if response shape changes.
+- AI cannot reliably know what information is already known unless the backend stores the latest fields and sends them back as `existing_db_state` on the next message.
+- Missing-information collection can become repetitive or inconsistent.
+- Telegram routing may lack the full latest AI context.
 
 Fix:
 
-- Define a formal AI API contract with the AI engineer.
-- Validate response fields in backend.
-- Store raw and normalized AI response.
+- Add `IntakeRequest` and `AIAnalysis`.
+- Build `existing_db_state` from backend DB state, not from ad hoc message history alone.
+- Persist raw and normalized AI responses after each AI call.
+- Default unknown risk values to human review.
+
+### AI Service Contract Must Stay Versioned
+
+The current AI endpoint contract is documented in `AI_INTEGRATION_CONTRACT.md`.
+
+Impact:
+
+- AI/backend integration can break if payloads or response fields change without coordination.
+
+Fix:
+
+- Keep `AI_INTEGRATION_CONTRACT.md` updated with the AI engineer.
+- Add validation around required fields before auto-sending client replies.
+- Store raw AI response payloads for debugging.
 
 ## Medium Priority
 

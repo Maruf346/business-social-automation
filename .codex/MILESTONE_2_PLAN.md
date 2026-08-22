@@ -48,13 +48,13 @@ Deliverable:
 
 ## Phase 1 - Data Model for Workflow and Decisions
 
-Goal: persist the objects needed for command center and learning.
+Goal: persist the objects needed for AI state continuity, command center, and learning.
 
 Proposed models:
 
 - `ArtistProfile`: Nina, Hoss, Lana, others; channel IDs; active status; specialties.
-- `IntakeRequest`: normalized intake state across WhatsApp/Outlook/vCita.
-- `AIAnalysis`: AI extraction, missing info, risk, confidence, artist suggestion, pricing estimate, style tags.
+- `IntakeRequest`: canonical latest tattoo-intake state across WhatsApp/Outlook/vCita.
+- `AIAnalysis`: every AI response snapshot, linked to the triggering message and intake request.
 - `HumanDecision`: approved/rejected/edited decision by Nina/Hoss.
 - `Correction`: changed artist, changed price, changed risk, changed message, reason.
 - `BusinessRule`: manually approved routing/pricing rules.
@@ -63,7 +63,17 @@ Proposed models:
 
 Deliverable:
 
-- Backend can store AI suggestion and final human decision separately.
+- Backend can build `existing_db_state` from its database, call AI, persist updated AI fields, and send the updated DB state again on the next message.
+
+Phase 1 implementation order:
+
+1. Add `IntakeRequest` with fields matching AI response: tattoo idea, style tags, placement, size estimate, color preference, suggested artist, confidence, missing information, risk level, status.
+2. Add `AIAnalysis` to store raw and normalized AI responses per message.
+3. Add service methods to build `existing_db_state` from `Lead`, active `IntakeRequest`, and latest `AIAnalysis`.
+4. Add service methods to apply AI response fields back onto `IntakeRequest`.
+5. Update WhatsApp and Outlook task flows to use the DB state builder before calling AI.
+6. Update low-risk flow to persist AI state before sending the draft reply.
+7. Update high-risk flow to persist AI state before creating Telegram summary.
 
 ## Phase 2 - Telegram Command Center
 
@@ -114,9 +124,9 @@ Risk examples:
 Backend behavior:
 
 - AI returns risk level and reason.
-- Backend validates risk level against allowed states.
-- Low-risk: save AI analysis, send draft to original channel, store outbound message.
-- Medium/high-risk: send waiting message if needed, create Telegram review card, block final response until approval.
+- Backend validates risk level against allowed states. Unknown values should default to human review.
+- Low-risk: save AI analysis, update `IntakeRequest`, send draft to original channel, store outbound message.
+- Medium/high-risk: save AI analysis, update `IntakeRequest`, send waiting message if needed, create Telegram review card, block final response until approval.
 
 Deliverable:
 
@@ -241,12 +251,13 @@ Deliverable:
 ## Suggested Build Order
 
 1. Stabilize existing webhooks and env config.
-2. Add tests and fixtures.
-3. Add workflow/decision models.
-4. Build Telegram callback handling and buttons.
-5. Persist AI analysis and human decisions.
-6. Implement low-risk auto-reply and high-risk approval states cleanly.
-7. Add Postgres/pgvector learning retrieval.
-8. Add pricing and image tags.
-9. Add calendar and vCita.
-10. Harden deployment.
+2. Add AI state models and persistence.
+3. Build `existing_db_state` payload generation from DB.
+4. Update WhatsApp/Outlook AI calls to persist AI response fields.
+5. Implement low-risk auto-reply and high-risk approval states cleanly.
+6. Build Telegram callback handling and buttons.
+7. Persist human decisions and corrections.
+8. Add Postgres/pgvector learning retrieval.
+9. Add pricing and richer image tags.
+10. Add calendar and vCita.
+11. Harden deployment.

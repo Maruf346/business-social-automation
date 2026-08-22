@@ -119,10 +119,14 @@ Backend expectations today:
 
 - Call analysis endpoint from `AI_API_URL`.
 - Call summary endpoint for Telegram review.
-- Send current message, recent history, DB state, and image URLs.
-- Receive `draft_reply` and `risk_level`.
+- Send current message, recent history, image URLs, and canonical backend state through `existing_db_state`.
+- Receive updated structured fields including tattoo idea, style tags, placement, size estimate, color preference, suggested artist, confidence level, AI reasoning, missing information, risk level, and draft reply.
+- Persist AI response fields back to the backend database after every AI call.
+- Send the updated DB state back to AI on the next message.
 
 Do not implement AI extraction logic in this repo unless the project scope changes. This backend should validate, persist, and act on AI service responses.
+
+See `AI_INTEGRATION_CONTRACT.md` for the full endpoint payload and response contract.
 
 ## Webhook Development Notes
 
@@ -137,8 +141,8 @@ WhatsApp:
 Outlook:
 
 - GET handles Microsoft validation token.
-- POST currently logs payload.
-- The intended orchestrator path exists but must be re-enabled and tested.
+- POST handles Microsoft validation token, logs payload, and calls the Outlook orchestrator.
+- Live end-to-end behavior still requires valid Graph credentials and webhook subscription data.
 
 Telegram:
 

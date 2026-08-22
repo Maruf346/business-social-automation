@@ -7,6 +7,7 @@ When code changes, update the relevant files here in the same development pass. 
 ## Files
 
 - `PROJECT_CONTEXT.md` - what the project is, what this backend owns, and how the main flows work.
+- `AI_INTEGRATION_CONTRACT.md` - AI endpoint payloads, responses, and backend persistence rules.
 - `HANDOVER_AUDIT.md` - Milestone 1 promises compared with evidence in the current codebase.
 - `MILESTONE_2_PLAN.md` - implementation plan for the remaining workflow and production work.
 - `TECH_DEBT_AND_RISKS.md` - known code, architecture, deployment, and product risks.
@@ -18,5 +19,5 @@ For every meaningful backend change:
 
 1. Update code.
 2. Run the relevant checks/tests.
-3. Update the matching `.codex/*.md` context file.
+3. Update the matching `.codex/*.md` context file, especially `AI_INTEGRATION_CONTRACT.md` when AI payloads or persistence rules change.
 4. Mention both code and documentation changes in the final summary.
