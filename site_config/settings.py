@@ -94,8 +94,8 @@ SIMPLE_JWT = {
 CORS_ORIGIN_ALLOW_ALL = True
 
 SPECTACULAR_SETTINGS = {
-    'TITLE': 'Right Route API',
-    'DESCRIPTION': 'API documentation for your project',
+    'TITLE': 'TattooHysteria [Ink-Flow] API',
+    'DESCRIPTION': 'API documentation for TattooHysteria [Ink-Flow] project',
     'VERSION': '1.0.0',
     'SECURITY': [{'BearerAuth': []}],
     'COMPONENTS': {
