@@ -50,11 +50,16 @@ Deliverable:
 
 Goal: persist the objects needed for AI state continuity, command center, and learning.
 
-Proposed models:
+Implemented on 2026-08-22:
 
-- `ArtistProfile`: Nina, Hoss, Lana, others; channel IDs; active status; specialties.
 - `IntakeRequest`: canonical latest tattoo-intake state across WhatsApp/Outlook/vCita.
 - `AIAnalysis`: every AI response snapshot, linked to the triggering message and intake request.
+- `IntakeStateService`: builds `existing_db_state`, normalizes AI responses, updates canonical intake state, and stores AI snapshots.
+- WhatsApp and Outlook AI task flows now send DB state to AI and persist AI response fields before risk routing.
+
+Still planned:
+
+- `ArtistProfile`: Nina, Hoss, Lana, others; channel IDs; active status; specialties.
 - `HumanDecision`: approved/rejected/edited decision by Nina/Hoss.
 - `Correction`: changed artist, changed price, changed risk, changed message, reason.
 - `BusinessRule`: manually approved routing/pricing rules.
@@ -65,7 +70,7 @@ Deliverable:
 
 - Backend can build `existing_db_state` from its database, call AI, persist updated AI fields, and send the updated DB state again on the next message.
 
-Phase 1 implementation order:
+Completed Phase 1 implementation items:
 
 1. Add `IntakeRequest` with fields matching AI response: tattoo idea, style tags, placement, size estimate, color preference, suggested artist, confidence, missing information, risk level, status.
 2. Add `AIAnalysis` to store raw and normalized AI responses per message.
@@ -251,12 +256,12 @@ Deliverable:
 ## Suggested Build Order
 
 1. Stabilize existing webhooks and env config.
-2. Add AI state models and persistence.
-3. Build `existing_db_state` payload generation from DB.
-4. Update WhatsApp/Outlook AI calls to persist AI response fields.
-5. Implement low-risk auto-reply and high-risk approval states cleanly.
-6. Build Telegram callback handling and buttons.
-7. Persist human decisions and corrections.
+2. Add AI state models and persistence. Done 2026-08-22.
+3. Build `existing_db_state` payload generation from DB. Done 2026-08-22.
+4. Update WhatsApp/Outlook AI calls to persist AI response fields. Done 2026-08-22.
+5. Build Telegram callback handling and buttons.
+6. Persist human decisions and corrections.
+7. Implement approved outbound reply flow for high-risk requests.
 8. Add Postgres/pgvector learning retrieval.
 9. Add pricing and richer image tags.
 10. Add calendar and vCita.

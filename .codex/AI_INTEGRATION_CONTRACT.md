@@ -270,9 +270,14 @@ Backend should tolerate partial AI responses but should validate critical fields
 - `suggested_artist` should eventually be normalized against known artists.
 - Raw response should be stored for debugging even if normalization partially fails.
 
+## Implementation Notes
+
+- `IntakeRequest` and `AIAnalysis` live in the dedicated `intake` app.
+- WhatsApp and Outlook task flows now create/load an active intake, send its state as `existing_db_state`, and persist AI response fields before risk routing.
+- Unknown or unsupported `risk_level` values normalize to `unknown`, which routes toward human review instead of auto-send.
+
 ## Open Implementation Questions
 
-- Should `IntakeRequest` live in `lead` or a new `intake` app?
 - Should each lead have one active intake at a time or multiple parallel requests?
 - Should high-risk `draft_reply` be stored as a proposed reply for approval?
 - Should `confidence_level` be enum-only (`low`, `medium`, `high`) or free text?

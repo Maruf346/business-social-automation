@@ -111,6 +111,26 @@ Recommended additions:
 
 - Database URL or explicit PostgreSQL settings.
 
+## Intake State App
+
+The `intake` app owns backend memory for AI-driven intake.
+
+Models:
+
+- `IntakeRequest`: latest known tattoo request state.
+- `AIAnalysis`: raw and normalized AI response snapshots.
+
+Service:
+
+- `IntakeStateService` builds `existing_db_state` and applies AI responses back to the database.
+
+After model changes:
+
+```powershell
+.\.venv\Scripts\python.exe manage.py makemigrations intake
+.\.venv\Scripts\python.exe manage.py migrate intake
+```
+
 ## External AI Service
 
 The AI service is developed in a separate repo by an AI engineer and will be deployed separately, likely on AWS.

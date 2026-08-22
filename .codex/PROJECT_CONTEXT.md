@@ -55,6 +55,29 @@ Key models:
 - `MediaFile`: downloaded WhatsApp media or Outlook attachments.
 - `Tag` and `LeadTag`: basic tagging foundation.
 
+### `intake`
+
+AI-backed intake state and analysis history.
+
+Key models:
+
+- `IntakeRequest`: canonical latest tattoo request state for a lead/conversation.
+- `AIAnalysis`: immutable snapshot of every AI analysis response, linked to the triggering message and intake.
+
+Key services:
+
+- `IntakeStateService.get_or_create_active_intake(...)`
+- `IntakeStateService.build_existing_db_state(...)`
+- `IntakeStateService.record_ai_response(...)`
+
+Current behavior:
+
+- WhatsApp and Outlook AI flows now create/load an active intake before calling AI.
+- The backend sends canonical intake data as `existing_db_state`.
+- After every AI analysis response, the backend updates `IntakeRequest` and stores an `AIAnalysis`.
+- Low-risk responses continue client auto-reply.
+- High, medium, or unknown risk values route toward human review instead of auto-send.
+
 ### `core`
 
 Integration and orchestration layer.

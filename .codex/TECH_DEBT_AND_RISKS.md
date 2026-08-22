@@ -56,22 +56,22 @@ Next:
 - Confirm the final deployed AWS endpoint paths.
 - Validate response shape before Milestone 2 decision persistence work.
 
-### AI State Persistence Not Implemented Yet
+### AI State Persistence Implemented, Needs Live Verification
 
-The AI service returns updated structured intake fields after every analysis call, but the backend does not yet persist those fields into a canonical intake-state model.
+The backend now persists updated structured intake fields into `IntakeRequest` and stores every AI response snapshot in `AIAnalysis`.
 
 Impact:
 
-- AI cannot reliably know what information is already known unless the backend stores the latest fields and sends them back as `existing_db_state` on the next message.
-- Missing-information collection can become repetitive or inconsistent.
-- Telegram routing may lack the full latest AI context.
+- The code path exists, but it still needs live verification against the deployed AI endpoint.
+- The current implementation does not yet expose an admin/operator workflow for reviewing these records beyond Django admin.
+- Human decisions and corrections are not implemented yet.
 
-Fix:
+Next:
 
-- Add `IntakeRequest` and `AIAnalysis`.
-- Build `existing_db_state` from backend DB state, not from ad hoc message history alone.
-- Persist raw and normalized AI responses after each AI call.
-- Default unknown risk values to human review.
+- Verify `existing_db_state` payload with the AI engineer.
+- Confirm AI response values for `risk_level` and `confidence_level`.
+- Build Telegram decision/correction models and callbacks.
+- Add validation before production auto-send.
 
 ### AI Service Contract Must Stay Versioned
 

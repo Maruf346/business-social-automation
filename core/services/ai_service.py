@@ -27,7 +27,14 @@ class AIService:
         self._timeout: int = ai_cfg.get("TIMEOUT", 30)
 
     # Public API
-    def get_reply(self, current_message: str, chat_history: QuerySet[Message], lead: Lead, image_urls: Optional[list[str]] = None,):
+    def get_reply(
+        self,
+        current_message: str,
+        chat_history: QuerySet[Message],
+        lead: Lead,
+        image_urls: Optional[list[str]] = None,
+        existing_db_state: Optional[dict] = None,
+    ):
         if not self._url:
             logger.error("AI_SERVICE.API_URL is not configured; using fallback reply.")
             return {
@@ -35,7 +42,7 @@ class AIService:
                 "risk_level": "low",
             }
 
-        payload = self._build_payload(current_message, chat_history, lead, image_urls)
+        payload = self._build_payload(current_message, chat_history, lead, image_urls, existing_db_state)
         logger.info("AI Request Payload: %s", payload)
         
         try:
@@ -85,12 +92,19 @@ class AIService:
         logger.info("Received AI draft_reply for lead=%s (len=%d)", lead.pk, len(draft_reply))
         return data
 
-    def get_summery(self, chat_history: QuerySet[Message], lead: Lead, current_message=""):
+    def get_summery(
+        self,
+        chat_history: QuerySet[Message],
+        lead: Lead,
+        current_message="",
+        image_urls: Optional[list[str]] = None,
+        existing_db_state: Optional[dict] = None,
+    ):
         if not self.summary_url:
             logger.error("AI_SERVICE.SUMMARY_API_URL is not configured.")
             raise AIServiceError("AI summary API URL is not configured.")
 
-        payload = self._build_payload(current_message, chat_history, lead)
+        payload = self._build_payload(current_message, chat_history, lead, image_urls, existing_db_state)
         response = requests.post(
             self.summary_url,
             json=payload,
@@ -103,7 +117,13 @@ class AIService:
 
     # Payload builder
     @staticmethod
-    def _build_payload(current_message: str,chat_history: QuerySet[Message],lead: Lead,image_urls: Optional[list[str]] = None,) -> dict:
+    def _build_payload(
+        current_message: str,
+        chat_history: QuerySet[Message],
+        lead: Lead,
+        image_urls: Optional[list[str]] = None,
+        existing_db_state: Optional[dict] = None,
+    ) -> dict:
         history: list[dict[str, str]] = []
         for msg in chat_history:
             role = (
@@ -113,11 +133,16 @@ class AIService:
             )
             history.append({"role": role, "content": msg.content or ""})
 
-        existing_db_state: dict = {
-            "lead_id": lead.pk,
-            "lead_name": lead.name or "",
-            "lead_phone": lead.phone_number,
-        }
+        if existing_db_state is None:
+            existing_db_state = {
+                "lead": {
+                    "id": lead.pk,
+                    "name": lead.name or "",
+                    "phone_number": lead.phone_number or "",
+                    "email": lead.email or "",
+                    "source": lead.source,
+                }
+            }
 
         return {
             "current_message": current_message,
