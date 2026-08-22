@@ -28,7 +28,7 @@ INSTALLED_APPS = [
     'rest_framework_simplejwt.token_blacklist', 'django_json_widget', 'django_celery_results',
 
     # custom app
-    'account', 'core', 'lead',
+    'account', 'core.apps.CoreConfig', 'lead',
 ]
 
 MIDDLEWARE = [
@@ -173,8 +173,8 @@ CELERY_TASK_SERIALIZER = "json"
 
 CELERY_RESULT_BACKEND = "django-db"
 
-CELERY_TASK_ALWAYS_EAGER = True
-CELERY_TASK_EAGER_PROPAGATES = True
+CELERY_TASK_ALWAYS_EAGER = os.getenv("CELERY_TASK_ALWAYS_EAGER", "True").strip().lower() in ("true", "1", "yes")
+CELERY_TASK_EAGER_PROPAGATES = os.getenv("CELERY_TASK_EAGER_PROPAGATES", "True").strip().lower() in ("true", "1", "yes")
 
 # =================Celery & Redis Config End================================
 # ==========================================================================================
@@ -225,11 +225,13 @@ WHATSAPP = {
 # =================AI Service Config================================
 AI_SERVICE = {
     "API_URL": os.getenv("AI_API_URL", ""),
+    "SUMMARY_API_URL": os.getenv("AI_SUMMARY_API_URL", os.getenv("AI_SUMMAERY_API_URL", "")),
     "TIMEOUT": int(os.getenv("AI_API_TIMEOUT", "30")),
     "CHAT_HISTORY_LIMIT": int(os.getenv("AI_CHAT_HISTORY_LIMIT", "20")),
 }
 
 TELEGRAM_BOT_TOKEN=os.getenv("TELEGRAM_BOT_TOKEN")
+TELEGRAM_REVIEW_CHAT_ID=os.getenv("TELEGRAM_REVIEW_CHAT_ID", "")
 # =================AI Service Config================================
 # ==========================================================================================
 

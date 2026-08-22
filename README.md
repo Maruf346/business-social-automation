@@ -423,13 +423,13 @@ celery -A config beat -l info
 Swagger
 
 ```
-http://127.0.0.1:8007/api/schema/swagger-ui/
+http://127.0.0.1:8007/api/docs/
 ```
 
 ReDoc
 
 ```
-http://127.0.0.1:8007/api/schema/redoc/
+http://127.0.0.1:8007/api/redoc/
 ```
 
 OpenAPI Schema

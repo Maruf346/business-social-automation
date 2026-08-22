@@ -165,6 +165,10 @@ class OutlookWebhook(APIView):
         },
     )
     def post(self, request, *args, **kwargs) -> Response:
+        token = request.GET.get("validationToken")
+        if token:
+            return HttpResponse(token, status=200, content_type="text/plain")
+
         # Parse body
         raw_body = request.body.decode("utf-8", errors="ignore")
         try:
@@ -188,15 +192,16 @@ class OutlookWebhook(APIView):
         )
         logger.info("Webhook logged id=%s", webhook_log.pk)
 
-        # try:
-        #     WebhookOrchestrator.process_outlook_webhook(payload, webhook_log)
-        # except Exception:
-        #     logger.exception("Orchestrator raised an unhandled exception")
-        
-        token = request.GET.get("validationToken")
+        try:
+            WebhookOrchestrator.process_outlook_webhook(payload, webhook_log)
+            logger.info("Outlook webhook processed successfully")
+        except Exception:
+            logger.exception("Outlook orchestrator raised an unhandled exception")
+
         return Response(
             {
-                "token": token
+                "status": "EVENT_RECEIVED",
+                "message": "Outlook webhook processed successfully.",
             },
             status=status.HTTP_200_OK,
         )
@@ -219,14 +224,14 @@ class TelegramWebhook(APIView):
         responses={200: OpenApiResponse(response=OpenApiTypes.OBJECT, description="Webhook accepted")},
     )
     def post(self, request):
-        print(request.data)
+        logger.info("Telegram webhook received: %s", request.data)
         return Response({"ok": True})
     
     @extend_schema(
         responses={200: OpenApiResponse(response=OpenApiTypes.OBJECT, description="Webhook health response")},
     )
     def get(self, request):
-        print(request.data)
+        logger.info("Telegram webhook health check")
         return Response({"ok": True})
 
 # @method_decorator(csrf_exempt, name="dispatch")

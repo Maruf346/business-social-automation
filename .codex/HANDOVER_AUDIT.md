@@ -19,16 +19,16 @@ Status labels:
 | --- | --- | --- |
 | Backend foundation with source code | Partial | Django/DRF project exists with apps, models, routes, admin, settings, Docker files. Tests are empty and production config is incomplete. |
 | WhatsApp Business API connection and testing | Partial / Unknown | Webhook verification, HMAC validation, parser, account model, media download, and outbound send service exist. No local account data or webhook logs prove live testing. |
-| Outlook/Microsoft Graph connection and testing | Partial | Models, token service, Graph message fetch/reply, attachment handling, and Celery pipeline exist. However Outlook webhook view currently does not call the orchestrator. |
+| Outlook/Microsoft Graph connection and testing | Partial | Models, token service, Graph message fetch/reply, attachment handling, Celery pipeline, and webhook-to-orchestrator dispatch exist. Live testing still requires valid Graph credentials and webhook subscription data. |
 | vCita feasibility review and written documentation | Missing | No vCita code or feasibility report found. |
 | AI extraction on sample or real client requests | Partial / External | Backend calls external AI endpoint. AI implementation belongs to separate AI repo. No tests or sample fixtures prove extraction behavior here. |
-| AI-generated structured summaries | Partial / External | Backend calls a summary endpoint for Telegram review. Summary URL is currently hardcoded in code. |
+| AI-generated structured summaries | Partial / External | Backend calls a configurable summary endpoint for Telegram review. Summary generation itself belongs to the separate AI service. |
 | One complete end-to-end demonstration | Partial / Not proven | WhatsApp path can theoretically do intake -> AI -> client or Telegram. Outlook path is disabled at webhook entry. Local DB has no proof records. |
 | AI detects tattoo details | External / Unknown | Depends on separate AI service. Backend can send message/history/image URLs. |
 | AI detects Nina, Hoss, or unclear | External / Unknown | No backend model or persisted field for artist suggestion yet. |
 | AI detects missing information | External / Unknown | No backend model or persisted field yet. |
 | Simple structured request card appears in Telegram | Partial | Backend sends plain Telegram messages. No card structure, inline buttons, callback handling, or persistence. |
-| End-of-milestone technical report | Missing | README is generic and partly outdated. No dedicated technical report found. |
+| End-of-milestone technical report | Missing | README is generic. No dedicated technical report found. |
 | 90-day bug-fix support | Not code-verifiable | Contract/business matter, not represented in repo. |
 
 ## Current Local Verification
@@ -59,7 +59,7 @@ Implemented:
 
 Needs work:
 
-- Move hardcoded Telegram chat ID to config/database.
+- Telegram review chat ID is now env-configured via `TELEGRAM_REVIEW_CHAT_ID`; later Milestone 2 can move this into database-backed team/channel config.
 - Persist AI analysis details.
 - Persist human review status.
 - Add tests and sample webhook fixtures.
@@ -76,9 +76,9 @@ Implemented:
 - Reply sending.
 - Celery chain for fetch -> AI -> send/review.
 
-Major issue:
+Phase 0 fix:
 
-- `OutlookWebhook.post()` logs the webhook but currently does not call `WebhookOrchestrator.process_outlook_webhook(...)`.
+- `OutlookWebhook.post()` now logs the webhook and calls `WebhookOrchestrator.process_outlook_webhook(...)`.
 
 Needs work:
 
@@ -127,6 +127,6 @@ Before claiming Milestone 1 is truly complete, create a reproducible demo checkl
 4. Confirm AI endpoint receives text/history/image URLs.
 5. Confirm low-risk auto-reply path.
 6. Confirm high-risk Telegram summary path.
-7. Re-enable and test Outlook webhook path.
+7. Test Outlook webhook path with valid Graph credentials and a live subscription.
 8. Save screenshots/log IDs for the demo.
 9. Write a technical report covering working behavior, limitations, and next steps.

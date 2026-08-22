@@ -99,15 +99,16 @@ Current important variables:
 - `META_APP_SECRET`
 - `META_API_VERSION`
 - `AI_API_URL`
+- `AI_SUMMARY_API_URL`
 - `AI_API_TIMEOUT`
 - `AI_CHAT_HISTORY_LIMIT`
 - `TELEGRAM_BOT_TOKEN`
+- `TELEGRAM_REVIEW_CHAT_ID`
+- `CELERY_TASK_ALWAYS_EAGER`
+- `CELERY_TASK_EAGER_PROPAGATES`
 
 Recommended additions:
 
-- `AI_SUMMARY_API_URL`
-- `TELEGRAM_REVIEW_CHAT_ID`
-- `CELERY_TASK_ALWAYS_EAGER`
 - Database URL or explicit PostgreSQL settings.
 
 ## External AI Service

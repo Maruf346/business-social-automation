@@ -102,7 +102,11 @@ def process_message_reply(self, incoming_message_id: int, lead_id: int, waba_id:
             "AI failed after %s retries. Using fallback reply.",
             self.request.retries,
         )
-        reply_text = _AI_FALLBACK_REPLY
+        reply_text = {
+            "draft_reply": _AI_FALLBACK_REPLY,
+            "risk_level": "low",
+        }
+        draft_reply = _AI_FALLBACK_REPLY
 
     risk_level = reply_text.get("risk_level", "low")
     if risk_level in ("high",):
@@ -130,7 +134,6 @@ def process_message_reply(self, incoming_message_id: int, lead_id: int, waba_id:
         from .services.telegram_bot_service import TelegramBotService
         telegram = TelegramBotService()
         telegram.send_message(
-            chat_id=8145617629,
             text=summary,
         )
         return {
@@ -368,6 +371,10 @@ def step2_generate_ai_reply(self, pipeline_data: dict) -> dict:
         
         logger.warning("AI failed after %s retries. Using fallback reply.", self.request.retries)
         draft_reply = getattr(self, '_AI_FALLBACK_REPLY', "Thank you for your message. We will get back to you shortly.")
+        reply_text = {
+            "draft_reply": draft_reply,
+            "risk_level": "low",
+        }
 
     risk_level = reply_text.get("risk_level", "low")
     pipeline_data["risk_level"] = risk_level
@@ -441,7 +448,6 @@ def step3_send_outlook_reply(self, pipeline_data: dict) -> dict:
         from .services.telegram_bot_service import TelegramBotService
         telegram = TelegramBotService()
         telegram.send_message(
-            chat_id=8145617629,
             text=summary,
         )
         logger.exception("Waiting for human approval.")

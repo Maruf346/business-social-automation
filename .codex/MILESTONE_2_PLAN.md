@@ -27,20 +27,24 @@ The AI service is a separate project owned by an AI engineer. This backend will 
 
 Goal: make the current code reliable enough to build on.
 
-Tasks:
+Completed on 2026-08-22:
 
-- Enable Outlook webhook processing by calling the orchestrator from the Outlook webhook view.
-- Move hardcoded AI summary URL into settings/env.
-- Move hardcoded Telegram chat ID into settings or database.
-- Add `core.signals` registration if Outlook subscription signals are still used.
-- Add missing deployment dependency such as `gunicorn` if Docker remains the deployment path.
-- Add tests for Swagger, webhooks, parsers, low/high risk branching, and basic service payloads.
-- Create sample webhook fixtures for WhatsApp and Outlook.
-- Update README/docs URLs.
+- Enabled Outlook webhook processing by calling the orchestrator from the Outlook webhook view.
+- Added Outlook POST validation-token handling for Microsoft Graph webhook validation.
+- Moved AI summary URL into settings/env as `AI_SUMMARY_API_URL`.
+- Moved Telegram review chat ID into settings/env as `TELEGRAM_REVIEW_CHAT_ID`.
+- Added `core.signals` registration through `CoreConfig`.
+- Added `gunicorn` to `requirements.txt` for the existing Docker command.
+- Made Celery eager mode configurable through env variables.
+- Updated README docs URLs.
+
+Deferred by current project direction:
+
+- Tests and sample fixtures were not added in this pass because the current maintainer asked to skip test work for now. Previous testing history exists only on the previous developer's local machine.
 
 Deliverable:
 
-- Backend can demonstrate WhatsApp and Outlook intake paths in test/dev with reproducible steps.
+- Backend foundation is cleaner and less hardcoded. Live demonstration still requires channel credentials, account records, and external AI endpoint availability.
 
 ## Phase 1 - Data Model for Workflow and Decisions
 

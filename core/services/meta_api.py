@@ -14,7 +14,7 @@ class MetaAPIService:
         self._phone_number_id: str = whatsapp_account.phone_number_id
         self._access_token: str = self._resolve_access_token(whatsapp_account)
         self._api_version: str = settings.WHATSAPP.get("API_VERSION", "v25.0")
-        self._base_url = f"https://graph.facebook.com/v25.0/{self._phone_number_id}/messages"
+        self._base_url = f"https://graph.facebook.com/{self._api_version}/{self._phone_number_id}/messages"
         self._session = self._build_session()
 
     # ------------------------------------------------------------------
@@ -53,8 +53,6 @@ class MetaAPIService:
         except (ValueError, TypeError) as exc:
             logger.error("Meta API returned non-JSON: %s", exc)
             raise MetaAPIError("Meta API returned invalid JSON") from exc
-
-        print("response: ", response)
 
         # Handle Meta-level error envelopes
         if "error" in data:

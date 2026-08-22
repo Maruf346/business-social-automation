@@ -22,15 +22,18 @@ _FALLBACK_REPLY = (
 class AIService:
     def __init__(self) -> None:
         ai_cfg: dict = getattr(settings, "AI_SERVICE", {})
-        self._url: str = ai_cfg.get("API_URL", "http://10.10.28.89:8001/api/v1/inquiries/analyze")
-        self.summery_url: str = "http://10.10.28.89:8001/api/v1/inquiries/telegram-summary"
+        self._url: str = ai_cfg.get("API_URL", "")
+        self.summary_url: str = ai_cfg.get("SUMMARY_API_URL", "")
         self._timeout: int = ai_cfg.get("TIMEOUT", 30)
 
     # Public API
     def get_reply(self, current_message: str, chat_history: QuerySet[Message], lead: Lead, image_urls: Optional[list[str]] = None,):
         if not self._url:
             logger.error("AI_SERVICE.API_URL is not configured; using fallback reply.")
-            return _FALLBACK_REPLY
+            return {
+                "draft_reply": _FALLBACK_REPLY,
+                "risk_level": "low",
+            }
 
         payload = self._build_payload(current_message, chat_history, lead, image_urls)
         logger.info("AI Request Payload: %s", payload)
@@ -80,14 +83,16 @@ class AIService:
             )
 
         logger.info("Received AI draft_reply for lead=%s (len=%d)", lead.pk, len(draft_reply))
-        print("**********Meta Response*********: ", data)
-        # return draft_reply
         return data
 
     def get_summery(self, chat_history: QuerySet[Message], lead: Lead, current_message=""):
+        if not self.summary_url:
+            logger.error("AI_SERVICE.SUMMARY_API_URL is not configured.")
+            raise AIServiceError("AI summary API URL is not configured.")
+
         payload = self._build_payload(current_message, chat_history, lead)
         response = requests.post(
-            self.summery_url,
+            self.summary_url,
             json=payload,
             headers={"Content-Type": "application/json"},
             timeout=self._timeout,

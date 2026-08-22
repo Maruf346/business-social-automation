@@ -4,18 +4,19 @@ Last reviewed: 2026-08-22
 
 ## High Priority
 
-### Outlook Webhook Does Not Trigger Processing
+### Outlook Webhook Live Verification Still Needed
 
-`OutlookWebhook.post()` currently logs the incoming payload but the orchestrator call is commented out.
+`OutlookWebhook.post()` now calls the orchestrator and handles Microsoft Graph validation tokens.
 
 Impact:
 
-- Outlook end-to-end intake may not work from webhooks.
+- The code path is connected, but a live Outlook webhook still needs valid Graph credentials, subscription records, and end-to-end verification.
 
-Fix:
+Next:
 
-- Re-enable `WebhookOrchestrator.process_outlook_webhook(payload, webhook_log)`.
-- Add tests with sample Microsoft Graph webhook payloads.
+- Configure an `OutlookAccount`.
+- Create/verify a `WebhookSubscription`.
+- Send a live or fixture-backed Graph notification through the endpoint.
 
 ### No Automated Tests
 
@@ -30,29 +31,30 @@ Fix:
 - Add unit tests for parsers and services.
 - Add integration-style tests for webhook endpoints with mocked external APIs.
 
-### Hardcoded Telegram Chat ID
+### Telegram Review Chat Is Env-Configured
 
-Telegram chat ID `8145617629` appears in service/task code.
-
-Impact:
-
-- Unsafe for production and hard to move across environments.
-
-Fix:
-
-- Move to env var or database-backed team/channel config.
-
-### AI Summary URL Hardcoded
-
-AI analysis URL is configurable, but summary URL is hardcoded in `AIService`.
+Telegram review chat ID is now read from `TELEGRAM_REVIEW_CHAT_ID`.
 
 Impact:
 
-- Cannot safely switch AWS environments without code changes.
+- This is acceptable for Phase 0. Milestone 2 may need database-backed team/channel configuration.
 
-Fix:
+Next:
 
-- Add `AI_SUMMARY_API_URL` to settings and `.env.example`.
+- Add staff/team configuration models when building the Telegram command center.
+
+### AI Summary URL Is Env-Configured
+
+AI analysis and summary URLs are now configurable. `AI_SUMMAERY_API_URL` is still accepted as a backward-compatible fallback for the previous typo, but new env files should use `AI_SUMMARY_API_URL`.
+
+Impact:
+
+- Backend and AI engineer still need a formal versioned response contract.
+
+Next:
+
+- Confirm the final deployed AWS endpoint paths.
+- Validate response shape before Milestone 2 decision persistence work.
 
 ### AI Service Contract Is Implicit
 
@@ -70,41 +72,40 @@ Fix:
 
 ## Medium Priority
 
-### Outlook Subscription Signals May Not Register
+### Outlook Subscription Signals Registered
 
-`core/signals.py` defines post-save/pre-delete handlers, but `core/apps.py` does not import signals in `ready()`.
-
-Impact:
-
-- Creating or updating `WebhookSubscription` may not sync with Microsoft Graph.
-
-Fix:
-
-- Add `ready()` import or replace implicit signals with explicit admin/service actions.
-
-### Docker Uses Gunicorn But Requirements Do Not Include It
-
-Dockerfile and docker-compose run `gunicorn`, but `requirements.txt` does not list `gunicorn`.
+`core.signals` is now imported in `CoreConfig.ready()`, and settings use `core.apps.CoreConfig`.
 
 Impact:
 
-- Container startup can fail.
+- Signal registration should now run when Django starts. Live behavior still depends on valid Graph credentials and subscription data.
 
-Fix:
+Next:
 
-- Add `gunicorn` to requirements or change Docker command.
+- Consider replacing implicit signals with explicit admin/service actions if subscription side effects become hard to reason about.
+
+### Docker Gunicorn Dependency Added
+
+Dockerfile and docker-compose run `gunicorn`, and `requirements.txt` now includes it.
+
+Impact:
+
+- Docker still needs a full build/run verification before production use.
+
+Next:
+
+- Verify Docker image build in the target environment.
 
 ### Celery Is Eager
 
-`CELERY_TASK_ALWAYS_EAGER = True`.
+`CELERY_TASK_ALWAYS_EAGER` is now env-driven and defaults to true for local development.
 
 Impact:
 
 - Local flow is simpler, but production behavior differs from real async workers.
 
-Fix:
+Next:
 
-- Make eager mode env-driven.
 - Configure Redis broker and worker in deployment.
 
 ### Local Database Is Empty
@@ -119,17 +120,17 @@ Fix:
 
 - Create reproducible demo fixtures or seed scripts without secrets.
 
-### README Is Outdated
+### README API Docs URLs Updated
 
-README Swagger URLs mention `/api/schema/swagger-ui/`, while actual Swagger URL is `/api/docs/`.
+README API docs URLs now point to `/api/docs/` and `/api/redoc/`.
 
 Impact:
 
-- New developers may use wrong docs URL.
+- README is still broad and generic, but the API docs paths are no longer misleading.
 
-Fix:
+Next:
 
-- Update README after the `.codex` handover docs are accepted.
+- Consider a fuller README cleanup after the Milestone 2 backend direction is settled.
 
 ### Encoding Artifacts
 

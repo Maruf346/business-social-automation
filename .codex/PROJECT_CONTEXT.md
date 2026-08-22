@@ -101,7 +101,9 @@ The backend currently expects at least:
 - `draft_reply`: proposed client-facing reply.
 - `risk_level`: currently handled as `low` or `high`.
 
-The backend also calls a summary endpoint for Telegram/human review. This should become environment-configured and should be finalized with the AI engineer.
+The backend also calls a summary endpoint for Telegram/human review. The summary endpoint is configured with `AI_SUMMARY_API_URL` and should be finalized with the AI engineer.
+
+Telegram review messages are sent to the chat configured by `TELEGRAM_REVIEW_CHAT_ID`.
 
 Recommended next contract fields for Milestone 2:
 
