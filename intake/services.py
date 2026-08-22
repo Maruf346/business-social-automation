@@ -4,7 +4,7 @@ from typing import Any
 
 from django.db import transaction
 
-from intake.models import AIAnalysis, ConfidenceLevel, IntakeRequest, IntakeStatus, RiskLevel
+from intake.models import AIAnalysis, ConfidenceLevel, IntakeRequest, IntakeSource, IntakeStatus, RiskLevel
 from lead.models import Conversation, Lead, Message
 
 
@@ -67,6 +67,8 @@ class IntakeStateService:
                 "id": intake.pk,
                 "status": cls._choice_value(intake.status),
                 "is_active": intake.is_active,
+                "source": cls._choice_value(intake.source),
+                "assigned_artist": intake.assigned_artist.name if intake.assigned_artist else "",
                 "tattoo_idea": intake.tattoo_idea,
                 "style_tags": intake.style_tags,
                 "placement": intake.placement,
@@ -81,6 +83,42 @@ class IntakeStateService:
             },
             "latest_ai_analysis": cls._analysis_state(latest_analysis),
         }
+
+    @classmethod
+    def update_channel_context(
+        cls,
+        intake: IntakeRequest,
+        source: str,
+        last_incoming_message: Message | None = None,
+        whatsapp_account=None,
+        outlook_account=None,
+        outlook_user_id: str = "",
+    ) -> IntakeRequest:
+        update_fields = ["source", "updated_at"]
+        intake.source = cls._normalize_choice(
+            source,
+            allowed={choice.value for choice in IntakeSource},
+            default=IntakeSource.OTHER,
+        )
+
+        if last_incoming_message is not None:
+            intake.last_incoming_message = last_incoming_message
+            update_fields.append("last_incoming_message")
+
+        if whatsapp_account is not None:
+            intake.whatsapp_account = whatsapp_account
+            update_fields.append("whatsapp_account")
+
+        if outlook_account is not None:
+            intake.outlook_account = outlook_account
+            update_fields.append("outlook_account")
+
+        if outlook_user_id:
+            intake.outlook_user_id = outlook_user_id
+            update_fields.append("outlook_user_id")
+
+        intake.save(update_fields=update_fields)
+        return intake
 
     @classmethod
     @transaction.atomic

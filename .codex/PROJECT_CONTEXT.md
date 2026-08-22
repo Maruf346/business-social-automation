@@ -63,12 +63,19 @@ Key models:
 
 - `IntakeRequest`: canonical latest tattoo request state for a lead/conversation.
 - `AIAnalysis`: immutable snapshot of every AI analysis response, linked to the triggering message and intake.
+- `ArtistProfile`: admin-managed artists, Telegram user IDs, private chat IDs, and Hoss-only approval flag.
+- `HumanDecision`: approval, rejection, assignment, manual, and artist reply actions.
+- `TelegramMessageLink`: maps bot messages to intakes so private artist replies can be resolved safely.
 
 Key services:
 
 - `IntakeStateService.get_or_create_active_intake(...)`
 - `IntakeStateService.build_existing_db_state(...)`
 - `IntakeStateService.record_ai_response(...)`
+- `TelegramWorkflowService.handle_update(...)`
+- `TelegramWorkflowService.send_review_card(...)`
+- `TelegramWorkflowService.send_artist_update(...)`
+- `ClientOutboundService.send_intake_reply(...)`
 
 Current behavior:
 
@@ -77,6 +84,9 @@ Current behavior:
 - After every AI analysis response, the backend updates `IntakeRequest` and stores an `AIAnalysis`.
 - Low-risk responses continue client auto-reply.
 - High, medium, or unknown risk values route toward human review instead of auto-send.
+- High-risk review cards now use DB-driven inline buttons.
+- Assigned intakes route future client messages to the assigned artist's private Telegram inbox.
+- Artist private replies are mapped by reply-to message or `/reply REQUEST_ID ...` and sent back to the original client channel.
 
 ### `core`
 
@@ -154,12 +164,21 @@ Important implementation rule:
 
 Known studio decision makers:
 
-- Nina
-- Hoss
+- Hoss: only approver for group approval/assignment actions.
+- Artists: dynamic list managed in the backend, expected to include Nina, Hoss, Lana, and additional artists.
 
-Future artist/routing notes mention Lana for fine-line style. This is not modeled yet.
+Artist assignment rules:
 
-The backend needs a canonical user/role model for Telegram actors so it can know which Telegram user is Nina, Hoss, admin, or another artist.
+- High-risk intakes first go to the shared Telegram group.
+- Hoss can approve an AI draft reply, reject, mark manual, or assign the active intake to an artist.
+- Hoss can assign the intake to himself; after assignment, he receives private inbox messages like any other artist.
+- Assignment applies to the active `IntakeRequest`, not permanently to the whole lead.
+- After assignment, future client messages for that intake route to the assigned artist's private Telegram chat.
+- Assigned artist replies are sent automatically to the client through the original channel.
+- Artist private replies should support text and media/files.
+- Current implementation supports Telegram text/photo/document private replies. WhatsApp receives media through Meta link sends; Outlook receives media as links in the email reply.
+
+The backend needs a canonical Telegram identity model for Hoss and every artist, including Telegram numeric user ID and private chat ID.
 
 ## Documentation Maintenance Rule
 

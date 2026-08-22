@@ -15,8 +15,9 @@ from core.services.ai_service import AIService
 from core.services.message_service import MessageService
 from core.services.outlook_api import OutlookAPIService, OutlookAPIError
 from core.models import OutlookAccount
-from intake.models import RiskLevel
+from intake.models import IntakeRequest, IntakeSource, RiskLevel
 from intake.services import IntakeStateService
+from intake.telegram_workflow import TelegramWorkflowService
 from lead.models import Lead, Conversation, Message
 from core.services.media_service import MediaService, MediaDownloadError
 from lead.choices import MESSAGE_STATUS
@@ -83,6 +84,25 @@ def process_message_reply(self, incoming_message_id: int, lead_id: int, waba_id:
     # Fetch chat history ──────────────────────
     history = MessageService.get_chat_history(lead)
     intake = IntakeStateService.get_or_create_active_intake(lead=lead)
+    IntakeStateService.update_channel_context(
+        intake=intake,
+        source=IntakeSource.WHATSAPP,
+        last_incoming_message=incoming_msg,
+        whatsapp_account=waba,
+    )
+
+    if intake.assigned_artist_id:
+        TelegramWorkflowService().send_artist_update(
+            intake=intake,
+            text=current_message_body,
+            media_items=[{"type": "image", "url": url, "file_name": "whatsapp-media"} for url in image_urls],
+        )
+        return {
+            "status": "forwarded_to_assigned_artist",
+            "intake_id": intake.pk,
+            "artist_id": intake.assigned_artist_id,
+        }
+
     existing_db_state = IntakeStateService.build_existing_db_state(lead=lead, intake=intake)
 
     # Call AI API ──────────────────────
@@ -153,11 +173,7 @@ def process_message_reply(self, incoming_message_id: int, lead_id: int, waba_id:
 
         summary = reply_summery.get("summary", "")
 
-        from .services.telegram_bot_service import TelegramBotService
-        telegram = TelegramBotService()
-        telegram.send_message(
-            text=summary,
-        )
+        TelegramWorkflowService().send_review_card(intake=intake, summary=summary)
         return {
             "status": "waiting_for_human_approval",
             "intake_id": intake.pk,
@@ -384,6 +400,24 @@ def step2_generate_ai_reply(self, pipeline_data: dict) -> dict:
         conversation=conversation,
     ).first()
     intake = IntakeStateService.get_or_create_active_intake(lead=lead, conversation=conversation)
+    IntakeStateService.update_channel_context(
+        intake=intake,
+        source=IntakeSource.OUTLOOK,
+        last_incoming_message=incoming_message,
+        outlook_account=OutlookAccount.objects.get(pk=pipeline_data["outlook_account_id"]),
+        outlook_user_id=pipeline_data["user_id"],
+    )
+
+    if intake.assigned_artist_id:
+        TelegramWorkflowService().send_artist_update(
+            intake=intake,
+            text=pipeline_data["incoming_text"],
+            media_items=[{"type": "image", "url": url, "file_name": "outlook-image"} for url in pipeline_data.get("image_urls", [])],
+        )
+        pipeline_data["pipeline_status"] = "forwarded_to_assigned_artist"
+        pipeline_data["intake_id"] = intake.pk
+        return pipeline_data
+
     existing_db_state = IntakeStateService.build_existing_db_state(lead=lead, intake=intake)
 
     logger.info("Stage 2 started: AI Generate | conv_id=%s attempt=%s", conversation_id, self.request.retries)
@@ -499,13 +533,11 @@ def step3_send_outlook_reply(self, pipeline_data: dict) -> dict:
         except Exception:
             logger.exception("Failed to send waiting message.")
 
-        # Send message in Telegram Group for Confimration====
-        from .services.telegram_bot_service import TelegramBotService
-        telegram = TelegramBotService()
-        telegram.send_message(
-            text=summary,
+        TelegramWorkflowService().send_review_card(
+            intake=IntakeRequest.objects.get(pk=pipeline_data["intake_id"]),
+            summary=summary,
         )
-        logger.exception("Waiting for human approval.")
+        logger.info("Waiting for human approval.")
         return {
             "status": "success",
             "message": "waiting_for_human_approval",

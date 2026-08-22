@@ -29,6 +29,33 @@ class MetaAPIService:
         }
         return self._post(payload)
 
+    def send_image_message(self, to: str, image_url: str, caption: str = "") -> dict:
+        payload = {
+            "messaging_product": "whatsapp",
+            "to": to,
+            "type": "image",
+            "image": {
+                "link": image_url,
+            },
+        }
+        if caption:
+            payload["image"]["caption"] = caption
+        return self._post(payload)
+
+    def send_document_message(self, to: str, document_url: str, filename: str = "attachment", caption: str = "") -> dict:
+        payload = {
+            "messaging_product": "whatsapp",
+            "to": to,
+            "type": "document",
+            "document": {
+                "link": document_url,
+                "filename": filename,
+            },
+        }
+        if caption:
+            payload["document"]["caption"] = caption
+        return self._post(payload)
+
     # ------------------------------------------------------------------
     # Internals
     # ------------------------------------------------------------------

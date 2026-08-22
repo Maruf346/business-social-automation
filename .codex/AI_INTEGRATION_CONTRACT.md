@@ -13,7 +13,7 @@ This Django backend owns:
 - Validating and normalizing AI responses.
 - Persisting the updated structured intake fields returned by AI.
 - Sending low-risk replies through the original channel.
-- Routing high-risk requests into Telegram for Nina/Hoss review.
+- Routing high-risk requests into Telegram for Hoss approval and artist assignment.
 
 This backend does not own:
 
@@ -201,8 +201,8 @@ If `risk_level == "high"`:
 - Persist AI structured fields.
 - Send a waiting/holding response to the client if appropriate.
 - Call `/api/v1/inquiries/telegram-summary`.
-- Send staff summary/card to Telegram.
-- Stop automatic client-facing replies until Nina/Hoss approve the next action.
+- Send staff summary/card to the shared Telegram group.
+- Stop automatic client-facing replies until Hoss approves the AI draft or assigns the active intake to an artist.
 
 Typical high-risk cases:
 
@@ -275,6 +275,9 @@ Backend should tolerate partial AI responses but should validate critical fields
 - `IntakeRequest` and `AIAnalysis` live in the dedicated `intake` app.
 - WhatsApp and Outlook task flows now create/load an active intake, send its state as `existing_db_state`, and persist AI response fields before risk routing.
 - Unknown or unsupported `risk_level` values normalize to `unknown`, which routes toward human review instead of auto-send.
+- Hoss-only approval and artist assignment happen after the high-risk AI route, not inside the AI service.
+- High-risk review cards now call backend Telegram workflow code; AI only provides summary/draft content.
+- Assigned artist replies bypass AI and are sent to the client through the original channel.
 
 ## Open Implementation Questions
 

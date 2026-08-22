@@ -7,7 +7,7 @@ Last reviewed: 2026-08-22
 Turn the partial intake foundation into a production-capable workflow system:
 
 - Risk-based automatic intake.
-- Telegram command center for Nina/Hoss.
+- Telegram command center for Hoss approval and assigned-artist inboxes.
 - Human approval and correction workflow.
 - Controlled feedback-learning memory.
 - Reference-image style analysis through the external AI service.
@@ -59,8 +59,8 @@ Implemented on 2026-08-22:
 
 Still planned:
 
-- `ArtistProfile`: Nina, Hoss, Lana, others; channel IDs; active status; specialties.
-- `HumanDecision`: approved/rejected/edited decision by Nina/Hoss.
+- `ArtistProfile`: Nina, Hoss, Lana, others; channel IDs; active status; specialties. Implemented 2026-08-22.
+- `HumanDecision`: approved/rejected/edited decision by Hoss or assigned artist action. Implemented 2026-08-22.
 - `Correction`: changed artist, changed price, changed risk, changed message, reason.
 - `BusinessRule`: manually approved routing/pricing rules.
 - `SimilarCaseEmbedding`: vector reference to past approved cases, likely PostgreSQL + pgvector.
@@ -94,28 +94,71 @@ Recommended UX:
 - Send a structured HTML-formatted message with the intake summary.
 - Attach inline buttons:
   - Approve Reply
-  - Edit Reply
-  - Assign Nina
-  - Assign Hoss
+  - Reject
+  - Needs Manual Reply
+  - Assign dynamic artist buttons from active DB records
   - Mark Unclear
-  - Reject / Needs Human
   - Add Price
   - Add Note
 - Use callback query endpoint to receive button clicks.
 - For simple text corrections, use force-reply or command syntax.
 - For richer editing, build a Telegram Web App later.
 
-How the backend knows Nina/Hoss:
+Locked workflow decisions:
 
-- Store Telegram user IDs mapped to internal `ArtistProfile` or `StaffProfile`.
-- On every callback, validate `callback_query.from.id`.
-- Only allow authorized users to approve/edit/reject.
+- High-risk requests go to one shared Telegram group first.
+- Only Hoss can approve/reject/assign from the shared group.
+- Hoss is also assignable as an artist; if he assigns himself, the bot sends future updates to his private Telegram inbox.
+- Active artists are managed in Django admin. New active artists should appear as assignment options without code changes.
+- Assignment applies only to the active `IntakeRequest`, not the lead forever.
+- Hoss approving the AI draft reply immediately sends that draft to the client through the original source channel.
+- If Hoss approves without assigning an artist, the intake remains unassigned and future high-risk messages return to the shared group.
+- After an artist is assigned, future client messages for that intake are routed to the assigned artist's private Telegram chat.
+- Assigned artist replies are sent automatically to the client, without another Hoss approval step.
+- Artist replies should support text plus images/files.
+
+How the backend identifies Telegram users:
+
+- Store Telegram numeric user IDs mapped to `ArtistProfile`.
+- Store each artist's private Telegram chat ID after they start the bot or run `/whoami`.
+- On every group callback, verify `callback_query.from.id` belongs to Hoss.
+- On every private artist reply, verify `message.from.id` belongs to the assigned artist.
+
+Multi-intake reply routing:
+
+- The bot sends private artist messages per assigned intake/update.
+- The artist normally replies directly to the bot's request/update message.
+- Backend maps `telegram_chat_id + reply_to_message.message_id` to the target `IntakeRequest`.
+- Fallback command: `/reply REQUEST_ID message text`.
+- Standalone private messages without a known reply target should be rejected with instructions.
 
 Deliverable:
 
-- High-risk requests appear in Telegram with buttons.
-- Nina/Hoss can approve, reject, assign artist, or begin correction.
+- High-risk requests appear in the shared Telegram group with Hoss-only action buttons.
+- Hoss can approve, reject, or assign a dynamic artist.
+- Assigned artists receive private Telegram updates and can reply to clients.
 - Decisions are persisted.
+
+Implemented on 2026-08-22:
+
+- Added `ArtistProfile`, `HumanDecision`, and `TelegramMessageLink`.
+- Added admin management for artists, decisions, and message links.
+- Added dynamic inline assignment buttons generated from active artists.
+- Added Hoss-only callback authorization through `ArtistProfile.can_approve`.
+- Added `/whoami` handling to capture Telegram user/chat IDs.
+- Added approval callback that sends the latest AI draft reply to the client.
+- Added reject/manual/assign callbacks.
+- Added private artist reply handling by reply-to message mapping.
+- Added `/reply REQUEST_ID ...` fallback.
+- Added assigned-intake routing so future WhatsApp/Outlook client messages go to the assigned artist instead of AI.
+- Added text/photo/document artist reply support. Outlook media currently sends as links; WhatsApp media sends via Meta media links.
+
+Still needs live verification:
+
+- Real Telegram bot webhook delivery.
+- Real Hoss and artist Telegram user IDs.
+- Real WhatsApp media link delivery from Telegram-downloaded files.
+- Real Outlook reply behavior with media links.
 
 ## Phase 3 - Risk-Based Auto-Reply Engine
 
@@ -146,7 +189,7 @@ Backend should store:
 
 - AI detection and suggestion.
 - AI confidence and reason.
-- Nina/Hoss final decision.
+- Hoss final decision and assigned artist actions.
 - Corrections and optional correction reason.
 - Final artist assigned.
 - Approved price or price range.
@@ -201,7 +244,7 @@ Inputs:
 
 Rules:
 
-- Never auto-send price to client unless explicitly approved by Nina/Hoss.
+- Never auto-send price to client unless explicitly approved by Hoss.
 - Store price estimate and confidence as internal fields.
 - Log final approved price/range separately.
 
@@ -260,8 +303,8 @@ Deliverable:
 3. Build `existing_db_state` payload generation from DB. Done 2026-08-22.
 4. Update WhatsApp/Outlook AI calls to persist AI response fields. Done 2026-08-22.
 5. Build Telegram callback handling and buttons.
-6. Persist human decisions and corrections.
-7. Implement approved outbound reply flow for high-risk requests.
+6. Persist human decisions. Done 2026-08-22.
+7. Implement approved outbound reply flow for high-risk requests. Done 2026-08-22.
 8. Add Postgres/pgvector learning retrieval.
 9. Add pricing and richer image tags.
 10. Add calendar and vCita.

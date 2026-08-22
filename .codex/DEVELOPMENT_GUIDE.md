@@ -166,8 +166,22 @@ Outlook:
 
 Telegram:
 
-- Current webhook endpoint only echoes `{"ok": true}`.
-- Milestone 2 should implement callback query handling for inline buttons.
+- Telegram webhook endpoint now dispatches updates to `TelegramWorkflowService`.
+- `/whoami` returns Telegram user/chat IDs and stores private chat ID for registered artists.
+- Callback query handling supports Hoss-only approve/reject/manual/assign actions.
+- Shared group actions must be authorized to Hoss only.
+- Artist private replies should be mapped by `reply_to_message.message_id` to a stored `TelegramMessageLink`.
+- Fallback reply format should be `/reply REQUEST_ID message text`.
+- Artists can send text, photos, or documents in private replies. WhatsApp receives media through Meta link sends; Outlook receives media links in the email reply.
+
+Artist setup in Django admin:
+
+1. Create an `ArtistProfile` for Hoss.
+2. Set Hoss `telegram_user_id`.
+3. Set Hoss `can_approve=True`.
+4. Create `ArtistProfile` rows for other artists.
+5. Ask each artist to start the bot and run `/whoami`.
+6. Copy/store their `telegram_user_id` if not already known; the private `telegram_chat_id` is saved automatically for registered artists.
 
 ## Testing Strategy
 

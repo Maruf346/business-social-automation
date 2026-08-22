@@ -16,6 +16,7 @@ from django.utils.decorators import method_decorator
 from core.choices import WebhookSource
 from core.models import WebhookLog
 from core.services.orchestrator import WebhookOrchestrator
+from intake.telegram_workflow import TelegramWorkflowService
 
 logger = logging.getLogger(__name__)
 
@@ -225,7 +226,8 @@ class TelegramWebhook(APIView):
     )
     def post(self, request):
         logger.info("Telegram webhook received: %s", request.data)
-        return Response({"ok": True})
+        result = TelegramWorkflowService().handle_update(request.data)
+        return Response(result)
     
     @extend_schema(
         responses={200: OpenApiResponse(response=OpenApiTypes.OBJECT, description="Webhook health response")},

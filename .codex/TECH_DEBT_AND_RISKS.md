@@ -43,6 +43,24 @@ Next:
 
 - Add staff/team configuration models when building the Telegram command center.
 
+### Telegram Assignment and Private Reply Routing Needs Live Verification
+
+The backend now has models and handlers for Hoss-only approval, dynamic artist assignment, Telegram callback mapping, and private artist-to-client replies.
+
+Impact:
+
+- This is implemented but not yet verified with the live Telegram Bot API/webhook.
+- Hoss and artists must be configured in Django admin with real Telegram numeric user IDs.
+- Artists must start the bot or run `/whoami` so their private `telegram_chat_id` is known.
+- Outlook media replies are currently sent as links, not true email attachments.
+
+Next:
+
+- Configure `ArtistProfile` records.
+- Set Hoss `can_approve=True`.
+- Set Telegram webhook to `/api/v1/webhook/telegram/`.
+- Verify group approval, assignment, private reply, and `/reply` fallback with real Telegram updates.
+
 ### AI Summary URL Is Env-Configured
 
 AI analysis and summary URLs are now configurable. `AI_SUMMAERY_API_URL` is still accepted as a backward-compatible fallback for the previous typo, but new env files should use `AI_SUMMARY_API_URL`.
@@ -213,7 +231,7 @@ Recommendation:
 
 - Secrets are env-driven but `.env` exists locally and must never be committed.
 - Webhook endpoints are unauthenticated by design, so signature/clientState validation matters.
-- Telegram callbacks must verify user IDs for Nina/Hoss/admin.
+- Telegram callbacks must verify Hoss for group approval actions and the assigned artist for private reply actions.
 - Internal pricing must never be sent to clients without human approval.
 - Media URLs should be reviewed before production; public dev tunnel URLs are not a long-term storage strategy.
 

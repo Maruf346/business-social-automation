@@ -1,0 +1,480 @@
+from __future__ import annotations
+
+import logging
+from html import escape
+from typing import Any
+
+from django.db import transaction
+
+from core.services.telegram_bot_service import TelegramBotService
+from intake.models import (
+    ArtistProfile,
+    HumanDecision,
+    HumanDecisionAction,
+    IntakeRequest,
+    IntakeStatus,
+    TelegramMessageLink,
+    TelegramMessagePurpose,
+)
+from intake.outbound import ClientOutboundService
+
+logger = logging.getLogger(__name__)
+
+
+class TelegramWorkflowService:
+    CALLBACK_PREFIX = "intake"
+
+    def __init__(self):
+        self.telegram = TelegramBotService()
+
+    def send_review_card(self, intake: IntakeRequest, summary: str = "") -> dict:
+        text = summary or self._format_review_text(intake)
+        response = self.telegram.send_message(
+            text=text,
+            reply_markup=self._build_review_keyboard(intake),
+        )
+        self._store_message_link(
+            intake=intake,
+            purpose=TelegramMessagePurpose.GROUP_REVIEW,
+            response=response,
+            artist=None,
+        )
+        return response
+
+    def send_artist_update(
+        self,
+        intake: IntakeRequest,
+        text: str,
+        media_items: list[dict[str, Any]] | None = None,
+        purpose: str = TelegramMessagePurpose.CLIENT_UPDATE,
+    ) -> dict | None:
+        if not intake.assigned_artist or not intake.assigned_artist.telegram_chat_id:
+            logger.warning("Cannot send artist update for intake=%s without assigned artist chat.", intake.pk)
+            return None
+
+        message = self._format_artist_update_text(intake, text, media_items or [])
+        response = self.telegram.send_message(
+            chat_id=intake.assigned_artist.telegram_chat_id,
+            text=message,
+        )
+        self._store_message_link(
+            intake=intake,
+            purpose=purpose,
+            response=response,
+            artist=intake.assigned_artist,
+        )
+        return response
+
+    def handle_update(self, update: dict[str, Any]) -> dict[str, Any]:
+        if "callback_query" in update:
+            return self._handle_callback(update["callback_query"], update)
+        if "message" in update:
+            return self._handle_message(update["message"], update)
+        return {"ok": True, "ignored": True}
+
+    def _handle_callback(self, callback: dict[str, Any], raw_update: dict[str, Any]) -> dict[str, Any]:
+        callback_id = callback.get("id", "")
+        from_user = callback.get("from", {})
+        actor = self._get_artist_by_user(from_user.get("id"))
+        if not actor or not actor.can_approve:
+            self.telegram.answer_callback_query(callback_id, "Only Hoss can do this.")
+            return {"ok": False, "reason": "unauthorized"}
+
+        data = callback.get("data", "")
+        parsed = self._parse_callback_data(data)
+        if not parsed:
+            self.telegram.answer_callback_query(callback_id, "Unknown action.")
+            return {"ok": False, "reason": "unknown_action"}
+
+        action = parsed["action"]
+        intake = IntakeRequest.objects.select_related("lead", "assigned_artist").get(pk=parsed["intake_id"])
+        message = callback.get("message", {})
+        chat_id = message.get("chat", {}).get("id")
+        message_id = message.get("message_id")
+
+        if action == "approve":
+            return self._approve_ai_reply(intake, actor, callback_id, chat_id, message_id, raw_update)
+        if action == "reject":
+            return self._reject_intake(intake, actor, callback_id, chat_id, message_id, raw_update)
+        if action == "manual":
+            return self._mark_manual(intake, actor, callback_id, chat_id, message_id, raw_update)
+        if action == "assign":
+            artist = ArtistProfile.objects.get(pk=parsed["artist_id"], is_active=True)
+            return self._assign_artist(intake, actor, artist, callback_id, chat_id, message_id, raw_update)
+
+        self.telegram.answer_callback_query(callback_id, "Unsupported action.")
+        return {"ok": False, "reason": "unsupported_action"}
+
+    def _handle_message(self, message: dict[str, Any], raw_update: dict[str, Any]) -> dict[str, Any]:
+        text = (message.get("text") or message.get("caption") or "").strip()
+        from_user = message.get("from", {})
+        chat = message.get("chat", {})
+        artist = self._get_artist_by_user(from_user.get("id"))
+
+        if text.startswith("/whoami"):
+            return self._handle_whoami(message, artist)
+
+        if not artist:
+            self.telegram.send_message(
+                chat_id=chat.get("id"),
+                text="Your Telegram user is not registered as an artist.",
+            )
+            return {"ok": False, "reason": "unknown_artist"}
+
+        if chat.get("type") != "private":
+            return {"ok": True, "ignored": "non_private_message"}
+
+        if text.startswith("/reply "):
+            return self._handle_reply_command(message, artist, raw_update)
+
+        reply_to = message.get("reply_to_message") or {}
+        if reply_to:
+            link = TelegramMessageLink.objects.filter(
+                telegram_chat_id=chat.get("id"),
+                telegram_message_id=reply_to.get("message_id"),
+                is_active=True,
+            ).select_related("intake", "artist").first()
+            if link:
+                return self._send_artist_reply(link.intake, artist, message, raw_update)
+
+        self.telegram.send_message(
+            chat_id=chat.get("id"),
+            text="Please reply directly to a request message, or use /reply REQUEST_ID your message.",
+        )
+        return {"ok": False, "reason": "missing_reply_target"}
+
+    def _handle_whoami(self, message: dict[str, Any], artist: ArtistProfile | None) -> dict[str, Any]:
+        from_user = message.get("from", {})
+        chat = message.get("chat", {})
+        if artist and chat.get("type") == "private":
+            artist.telegram_chat_id = chat.get("id")
+            artist.save(update_fields=["telegram_chat_id", "updated_at"])
+
+        self.telegram.send_message(
+            chat_id=chat.get("id"),
+            text=(
+                f"Telegram user id: <code>{from_user.get('id')}</code>\n"
+                f"Telegram chat id: <code>{chat.get('id')}</code>\n"
+                f"Registered artist: <b>{escape(artist.name) if artist else 'No'}</b>"
+            ),
+        )
+        return {"ok": True, "artist_id": artist.pk if artist else None}
+
+    def _handle_reply_command(
+        self,
+        message: dict[str, Any],
+        artist: ArtistProfile,
+        raw_update: dict[str, Any],
+    ) -> dict[str, Any]:
+        text = (message.get("text") or "").strip()
+        parts = text.split(" ", 2)
+        if len(parts) < 3 or not parts[1].isdigit():
+            self.telegram.send_message(
+                chat_id=message.get("chat", {}).get("id"),
+                text="Use /reply REQUEST_ID your message.",
+            )
+            return {"ok": False, "reason": "invalid_reply_command"}
+
+        intake = IntakeRequest.objects.filter(
+            pk=int(parts[1]),
+            assigned_artist=artist,
+            is_active=True,
+        ).first()
+        if not intake:
+            self.telegram.send_message(
+                chat_id=message.get("chat", {}).get("id"),
+                text="I could not find an active request assigned to you with that ID.",
+            )
+            return {"ok": False, "reason": "unknown_intake"}
+
+        message = dict(message)
+        message["text"] = parts[2]
+        return self._send_artist_reply(intake, artist, message, raw_update)
+
+    @transaction.atomic
+    def _approve_ai_reply(
+        self,
+        intake: IntakeRequest,
+        actor: ArtistProfile,
+        callback_id: str,
+        chat_id: int | None,
+        message_id: int | None,
+        raw_update: dict[str, Any],
+    ) -> dict[str, Any]:
+        if not intake.latest_draft_reply.strip():
+            self.telegram.answer_callback_query(callback_id, "No AI draft reply is available.")
+            return {"ok": False, "reason": "missing_draft_reply"}
+
+        ClientOutboundService.send_intake_reply(intake, intake.latest_draft_reply)
+        intake.status = IntakeStatus.APPROVED
+        intake.save(update_fields=["status", "updated_at"])
+        HumanDecision.objects.create(
+            intake=intake,
+            actor=actor,
+            action=HumanDecisionAction.APPROVE_AI_REPLY,
+            telegram_chat_id=chat_id,
+            telegram_message_id=message_id,
+            telegram_callback_id=callback_id,
+            raw_update=raw_update,
+        )
+        self.telegram.answer_callback_query(callback_id, "AI reply sent to client.")
+        self.telegram.send_message(chat_id=chat_id, text=f"Request #{intake.pk}: AI reply approved and sent.")
+        return {"ok": True, "action": "approve", "intake_id": intake.pk}
+
+    @transaction.atomic
+    def _assign_artist(
+        self,
+        intake: IntakeRequest,
+        actor: ArtistProfile,
+        artist: ArtistProfile,
+        callback_id: str,
+        chat_id: int | None,
+        message_id: int | None,
+        raw_update: dict[str, Any],
+    ) -> dict[str, Any]:
+        intake.assigned_artist = artist
+        intake.status = IntakeStatus.ASSIGNED
+        intake.save(update_fields=["assigned_artist", "status", "updated_at"])
+        HumanDecision.objects.create(
+            intake=intake,
+            actor=actor,
+            assigned_artist=artist,
+            action=HumanDecisionAction.ASSIGN_ARTIST,
+            telegram_chat_id=chat_id,
+            telegram_message_id=message_id,
+            telegram_callback_id=callback_id,
+            raw_update=raw_update,
+        )
+        if artist.telegram_chat_id:
+            self.send_artist_update(
+                intake=intake,
+                text="You have been assigned to this request.",
+                purpose=TelegramMessagePurpose.ARTIST_ASSIGNMENT,
+            )
+            self.telegram.answer_callback_query(callback_id, f"Assigned to {artist.name}.")
+            self.telegram.send_message(chat_id=chat_id, text=f"Request #{intake.pk} assigned to {escape(artist.name)}.")
+        else:
+            self.telegram.answer_callback_query(callback_id, f"{artist.name} has no private chat ID yet.")
+            self.telegram.send_message(
+                chat_id=chat_id,
+                text=f"Request #{intake.pk} assigned to {escape(artist.name)}, but they need to start the bot and run /whoami.",
+            )
+        return {"ok": True, "action": "assign", "intake_id": intake.pk, "artist_id": artist.pk}
+
+    @transaction.atomic
+    def _reject_intake(
+        self,
+        intake: IntakeRequest,
+        actor: ArtistProfile,
+        callback_id: str,
+        chat_id: int | None,
+        message_id: int | None,
+        raw_update: dict[str, Any],
+    ) -> dict[str, Any]:
+        intake.status = IntakeStatus.REJECTED
+        intake.save(update_fields=["status", "updated_at"])
+        HumanDecision.objects.create(
+            intake=intake,
+            actor=actor,
+            action=HumanDecisionAction.REJECT,
+            telegram_chat_id=chat_id,
+            telegram_message_id=message_id,
+            telegram_callback_id=callback_id,
+            raw_update=raw_update,
+        )
+        self.telegram.answer_callback_query(callback_id, "Marked rejected.")
+        self.telegram.send_message(chat_id=chat_id, text=f"Request #{intake.pk} marked rejected.")
+        return {"ok": True, "action": "reject", "intake_id": intake.pk}
+
+    @transaction.atomic
+    def _mark_manual(
+        self,
+        intake: IntakeRequest,
+        actor: ArtistProfile,
+        callback_id: str,
+        chat_id: int | None,
+        message_id: int | None,
+        raw_update: dict[str, Any],
+    ) -> dict[str, Any]:
+        intake.status = IntakeStatus.WAITING_FOR_HUMAN
+        intake.save(update_fields=["status", "updated_at"])
+        HumanDecision.objects.create(
+            intake=intake,
+            actor=actor,
+            action=HumanDecisionAction.NEEDS_MANUAL_REPLY,
+            telegram_chat_id=chat_id,
+            telegram_message_id=message_id,
+            telegram_callback_id=callback_id,
+            raw_update=raw_update,
+        )
+        self.telegram.answer_callback_query(callback_id, "Marked for manual reply.")
+        self.telegram.send_message(chat_id=chat_id, text=f"Request #{intake.pk} needs manual reply.")
+        return {"ok": True, "action": "manual", "intake_id": intake.pk}
+
+    @transaction.atomic
+    def _send_artist_reply(
+        self,
+        intake: IntakeRequest,
+        artist: ArtistProfile,
+        message: dict[str, Any],
+        raw_update: dict[str, Any],
+    ) -> dict[str, Any]:
+        if intake.assigned_artist_id != artist.pk:
+            self.telegram.send_message(
+                chat_id=message.get("chat", {}).get("id"),
+                text="This request is not assigned to you.",
+            )
+            return {"ok": False, "reason": "wrong_artist"}
+
+        text = (message.get("text") or message.get("caption") or "").strip()
+        media_items = self._extract_media_items(message)
+        ClientOutboundService.send_intake_reply(intake, text, media_items=media_items)
+        HumanDecision.objects.create(
+            intake=intake,
+            actor=artist,
+            action=HumanDecisionAction.ARTIST_REPLY,
+            note=text,
+            telegram_chat_id=message.get("chat", {}).get("id"),
+            telegram_message_id=message.get("message_id"),
+            raw_update=raw_update,
+        )
+        self.telegram.send_message(
+            chat_id=message.get("chat", {}).get("id"),
+            text=f"Sent to client for Request #{intake.pk}.",
+        )
+        return {"ok": True, "action": "artist_reply", "intake_id": intake.pk}
+
+    def _extract_media_items(self, message: dict[str, Any]) -> list[dict[str, Any]]:
+        media_items: list[dict[str, Any]] = []
+        caption = message.get("caption", "")
+
+        if message.get("photo"):
+            photo = message["photo"][-1]
+            downloaded = self.telegram.download_file(photo["file_id"], original_name="photo.jpg")
+            media_items.append({
+                "type": "image",
+                "url": downloaded["url"],
+                "file_name": downloaded["file_name"],
+                "caption": caption,
+            })
+
+        if message.get("document"):
+            document = message["document"]
+            downloaded = self.telegram.download_file(
+                document["file_id"],
+                original_name=document.get("file_name", "document"),
+            )
+            media_items.append({
+                "type": "document",
+                "url": downloaded["url"],
+                "file_name": downloaded["file_name"],
+                "caption": caption,
+            })
+
+        return media_items
+
+    def _build_review_keyboard(self, intake: IntakeRequest) -> dict[str, Any]:
+        keyboard = [
+            [
+                {"text": "Approve AI Reply", "callback_data": f"{self.CALLBACK_PREFIX}:approve:{intake.pk}"},
+                {"text": "Needs Manual Reply", "callback_data": f"{self.CALLBACK_PREFIX}:manual:{intake.pk}"},
+            ],
+            [
+                {"text": "Reject", "callback_data": f"{self.CALLBACK_PREFIX}:reject:{intake.pk}"},
+            ],
+        ]
+
+        artists = ArtistProfile.objects.filter(is_active=True).order_by("sort_order", "name")
+        row = []
+        for artist in artists:
+            row.append({
+                "text": f"Assign {artist.name}",
+                "callback_data": f"{self.CALLBACK_PREFIX}:assign:{intake.pk}:{artist.pk}",
+            })
+            if len(row) == 2:
+                keyboard.append(row)
+                row = []
+        if row:
+            keyboard.append(row)
+
+        return {"inline_keyboard": keyboard}
+
+    def _format_review_text(self, intake: IntakeRequest) -> str:
+        return (
+            f"<b>High-risk request #{intake.pk}</b>\n"
+            f"Client: {escape(str(intake.lead))}\n"
+            f"Source: {escape(intake.source)}\n"
+            f"Idea: {escape(intake.tattoo_idea or 'Unclear')}\n"
+            f"Artist suggestion: {escape(intake.suggested_artist or 'Unclear')}\n"
+            f"Missing: {escape(', '.join(intake.missing_information) or 'None')}\n\n"
+            f"<b>Draft reply</b>\n{escape(intake.latest_draft_reply or '')}"
+        )
+
+    def _format_artist_update_text(
+        self,
+        intake: IntakeRequest,
+        text: str,
+        media_items: list[dict[str, Any]],
+    ) -> str:
+        media_note = ""
+        if media_items:
+            media_note = "\nMedia: " + ", ".join(escape(item.get("url", "")) for item in media_items if item.get("url"))
+
+        return (
+            f"<b>Request #{intake.pk}</b>\n"
+            f"Client: {escape(str(intake.lead))}\n"
+            f"Source: {escape(intake.source)}\n\n"
+            f"{escape(text or '')}"
+            f"{media_note}\n\n"
+            "Reply to this message to answer the client."
+        )
+
+    def _store_message_link(
+        self,
+        intake: IntakeRequest,
+        purpose: str,
+        response: dict[str, Any],
+        artist: ArtistProfile | None,
+    ) -> TelegramMessageLink | None:
+        message = response.get("result", {})
+        chat_id = message.get("chat", {}).get("id")
+        message_id = message.get("message_id")
+        if not chat_id or not message_id:
+            return None
+
+        return TelegramMessageLink.objects.create(
+            intake=intake,
+            lead=intake.lead,
+            artist=artist,
+            purpose=purpose,
+            telegram_chat_id=chat_id,
+            telegram_message_id=message_id,
+            raw_message=message,
+        )
+
+    @staticmethod
+    def _get_artist_by_user(telegram_user_id: Any) -> ArtistProfile | None:
+        if telegram_user_id is None:
+            return None
+        return ArtistProfile.objects.filter(
+            telegram_user_id=telegram_user_id,
+            is_active=True,
+        ).first()
+
+    @classmethod
+    def _parse_callback_data(cls, data: str) -> dict[str, int | str] | None:
+        parts = data.split(":")
+        if len(parts) < 3 or parts[0] != cls.CALLBACK_PREFIX:
+            return None
+        action = parts[1]
+        if not parts[2].isdigit():
+            return None
+        parsed: dict[str, int | str] = {
+            "action": action,
+            "intake_id": int(parts[2]),
+        }
+        if action == "assign":
+            if len(parts) != 4 or not parts[3].isdigit():
+                return None
+            parsed["artist_id"] = int(parts[3])
+        return parsed
