@@ -1,6 +1,6 @@
 # Milestone 2 Plan
 
-Last reviewed: 2026-08-22
+Last reviewed: 2026-08-23
 
 ## Milestone 2 Goal
 
@@ -95,13 +95,13 @@ Recommended UX:
 - Attach inline buttons:
   - Approve Reply
   - Reject
-  - Needs Manual Reply
+  - Edit Reply
   - Assign dynamic artist buttons from active DB records
   - Mark Unclear
   - Add Price
   - Add Note
 - Use callback query endpoint to receive button clicks.
-- For simple text corrections, use force-reply or command syntax.
+- For simple text corrections, Hoss clicks Edit Reply and then sends `/reply REQUEST_ID message text` in the shared group.
 - For richer editing, build a Telegram Web App later.
 
 Locked workflow decisions:
@@ -112,6 +112,7 @@ Locked workflow decisions:
 - Active artists are managed in Django admin. New active artists should appear as assignment options without code changes.
 - Assignment applies only to the active `IntakeRequest`, not the lead forever.
 - Hoss approving the AI draft reply immediately sends that draft to the client through the original source channel.
+- Hoss can choose Edit Reply instead of approving the AI draft; the edited reply is then sent through group command `/reply REQUEST_ID message text`.
 - If Hoss approves without assigning an artist, the intake remains unassigned and future high-risk messages return to the shared group.
 - After an artist is assigned, future client messages for that intake are routed to the assigned artist's private Telegram chat.
 - Assigned artist replies are sent automatically to the client, without another Hoss approval step.
@@ -129,13 +130,14 @@ Multi-intake reply routing:
 - The bot sends private artist messages per assigned intake/update.
 - The artist normally replies directly to the bot's request/update message.
 - Backend maps `telegram_chat_id + reply_to_message.message_id` to the target `IntakeRequest`.
-- Fallback command: `/reply REQUEST_ID message text`.
+- Assigned artist fallback command: `/reply REQUEST_ID message text`.
+- Hoss-only group edit command for unassigned intakes: `/reply REQUEST_ID message text`.
 - Standalone private messages without a known reply target should be rejected with instructions.
 
 Deliverable:
 
 - High-risk requests appear in the shared Telegram group with Hoss-only action buttons.
-- Hoss can approve, reject, or assign a dynamic artist.
+- Hoss can approve, edit, reject, or assign a dynamic artist.
 - Assigned artists receive private Telegram updates and can reply to clients.
 - Decisions are persisted.
 
@@ -147,9 +149,9 @@ Implemented on 2026-08-22:
 - Added Hoss-only callback authorization through `ArtistProfile.can_approve`.
 - Added `/whoami` handling to capture Telegram user/chat IDs.
 - Added approval callback that sends the latest AI draft reply to the client.
-- Added reject/manual/assign callbacks.
+- Added reject/Edit Reply/assign callbacks.
 - Added private artist reply handling by reply-to message mapping.
-- Added `/reply REQUEST_ID ...` fallback.
+- Added `/reply REQUEST_ID ...` fallback for assigned artists and Hoss-only group edited replies.
 - Added assigned-intake routing so future WhatsApp/Outlook client messages go to the assigned artist instead of AI.
 - Added text/photo/document artist reply support. Outlook media currently sends as links; WhatsApp media sends via Meta media links.
 

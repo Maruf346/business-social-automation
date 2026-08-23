@@ -1,6 +1,6 @@
 # Project Context
 
-Last reviewed: 2026-08-22
+Last reviewed: 2026-08-23
 
 ## Product Goal
 
@@ -64,7 +64,7 @@ Key models:
 - `IntakeRequest`: canonical latest tattoo request state for a lead/conversation.
 - `AIAnalysis`: immutable snapshot of every AI analysis response, linked to the triggering message and intake.
 - `ArtistProfile`: admin-managed artists, Telegram user IDs, private chat IDs, and Hoss-only approval flag.
-- `HumanDecision`: approval, rejection, assignment, manual, and artist reply actions.
+- `HumanDecision`: approval, rejection, assignment, edited reply, and artist reply actions.
 - `TelegramMessageLink`: maps bot messages to intakes so private artist replies can be resolved safely.
 
 Key services:
@@ -170,7 +170,9 @@ Known studio decision makers:
 Artist assignment rules:
 
 - High-risk intakes first go to the shared Telegram group.
-- Hoss can approve an AI draft reply, reject, mark manual, or assign the active intake to an artist.
+- Hoss can approve an AI draft reply, reject, choose Edit Reply, or assign the active intake to an artist.
+- Edit Reply keeps the intake waiting for human action and tells Hoss to send the final client message with `/reply REQUEST_ID message text` in the shared group.
+- Only Hoss, represented by an active `ArtistProfile` with `can_approve=True`, can use group `/reply` for an unassigned intake.
 - Hoss can assign the intake to himself; after assignment, he receives private inbox messages like any other artist.
 - Assignment applies to the active `IntakeRequest`, not permanently to the whole lead.
 - After assignment, future client messages for that intake route to the assigned artist's private Telegram chat.

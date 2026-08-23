@@ -1,6 +1,6 @@
 # Technical Debt and Risks
 
-Last reviewed: 2026-08-22
+Last reviewed: 2026-08-23
 
 ## High Priority
 
@@ -59,7 +59,7 @@ Next:
 - Configure `ArtistProfile` records.
 - Set Hoss `can_approve=True`.
 - Set Telegram webhook to `/api/v1/webhook/telegram/`.
-- Verify group approval, assignment, private reply, and `/reply` fallback with real Telegram updates.
+- Verify group approval, Edit Reply, assignment, private reply, and `/reply` fallback with real Telegram updates.
 
 ### AI Summary URL Is Env-Configured
 
@@ -150,10 +150,12 @@ Current `db.sqlite3` has no account, lead, message, or webhook data.
 Impact:
 
 - Cannot prove live integration state from the checkout.
+- Fake/admin-created intakes with `source=other` cannot complete outbound replies because there is no WhatsApp or Outlook target channel.
 
 Fix:
 
 - Create reproducible demo fixtures or seed scripts without secrets.
+- For full outbound testing, create the intake from a real WhatsApp or Outlook webhook context.
 
 ### README API Docs URLs Updated
 

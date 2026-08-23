@@ -35,7 +35,7 @@ class HumanDecisionAction(models.TextChoices):
     APPROVE_AI_REPLY = "approve_ai_reply", "Approve AI Reply"
     REJECT = "reject", "Reject"
     ASSIGN_ARTIST = "assign_artist", "Assign Artist"
-    NEEDS_MANUAL_REPLY = "needs_manual_reply", "Needs Manual Reply"
+    EDIT_REPLY = "edit_reply", "Edit Reply"
     ARTIST_REPLY = "artist_reply", "Artist Reply"
 
 

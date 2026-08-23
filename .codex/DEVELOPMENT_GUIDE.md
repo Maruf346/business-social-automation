@@ -1,6 +1,6 @@
 # Development Guide
 
-Last reviewed: 2026-08-22
+Last reviewed: 2026-08-23
 
 ## Local Environment
 
@@ -168,11 +168,13 @@ Telegram:
 
 - Telegram webhook endpoint now dispatches updates to `TelegramWorkflowService`.
 - `/whoami` returns Telegram user/chat IDs and stores private chat ID for registered artists.
-- Callback query handling supports Hoss-only approve/reject/manual/assign actions.
+- Callback query handling supports Hoss-only approve/reject/Edit Reply/assign actions.
 - Shared group actions must be authorized to Hoss only.
+- Edit Reply tells Hoss to send `/reply REQUEST_ID message text` in the group; only an artist with `can_approve=True` can send that command for an unassigned intake.
 - Artist private replies should be mapped by `reply_to_message.message_id` to a stored `TelegramMessageLink`.
-- Fallback reply format should be `/reply REQUEST_ID message text`.
+- Assigned artist fallback reply format should be `/reply REQUEST_ID message text`.
 - Artists can send text, photos, or documents in private replies. WhatsApp receives media through Meta link sends; Outlook receives media links in the email reply.
+- Fake/admin-created intakes with `source=other` can test Telegram cards and button routing, but they cannot send real client replies. Approve/Edit/artist send actions should report this in Telegram instead of crashing the webhook.
 
 Artist setup in Django admin:
 

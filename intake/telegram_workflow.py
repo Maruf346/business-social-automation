@@ -6,6 +6,7 @@ from typing import Any
 
 from django.db import transaction
 
+from core.exceptions import MetaAPIError, OutlookAPIError
 from core.services.telegram_bot_service import TelegramBotService
 from intake.models import (
     ArtistProfile,
@@ -96,8 +97,8 @@ class TelegramWorkflowService:
             return self._approve_ai_reply(intake, actor, callback_id, chat_id, message_id, raw_update)
         if action == "reject":
             return self._reject_intake(intake, actor, callback_id, chat_id, message_id, raw_update)
-        if action == "manual":
-            return self._mark_manual(intake, actor, callback_id, chat_id, message_id, raw_update)
+        if action == "edit":
+            return self._mark_edit_reply(intake, actor, callback_id, chat_id, message_id, raw_update)
         if action == "assign":
             artist = ArtistProfile.objects.get(pk=parsed["artist_id"], is_active=True)
             return self._assign_artist(intake, actor, artist, callback_id, chat_id, message_id, raw_update)
@@ -121,11 +122,11 @@ class TelegramWorkflowService:
             )
             return {"ok": False, "reason": "unknown_artist"}
 
-        if chat.get("type") != "private":
-            return {"ok": True, "ignored": "non_private_message"}
-
         if text.startswith("/reply "):
             return self._handle_reply_command(message, artist, raw_update)
+
+        if chat.get("type") != "private":
+            return {"ok": True, "ignored": "non_private_message"}
 
         reply_to = message.get("reply_to_message") or {}
         if reply_to:
@@ -177,7 +178,6 @@ class TelegramWorkflowService:
 
         intake = IntakeRequest.objects.filter(
             pk=int(parts[1]),
-            assigned_artist=artist,
             is_active=True,
         ).first()
         if not intake:
@@ -189,7 +189,16 @@ class TelegramWorkflowService:
 
         message = dict(message)
         message["text"] = parts[2]
-        return self._send_artist_reply(intake, artist, message, raw_update)
+        if intake.assigned_artist_id:
+            return self._send_artist_reply(intake, artist, message, raw_update)
+        if artist.can_approve:
+            return self._send_hoss_group_reply(intake, artist, message, raw_update)
+
+        self.telegram.send_message(
+            chat_id=message.get("chat", {}).get("id"),
+            text="This request is not assigned to you.",
+        )
+        return {"ok": False, "reason": "wrong_artist"}
 
     @transaction.atomic
     def _approve_ai_reply(
@@ -205,7 +214,13 @@ class TelegramWorkflowService:
             self.telegram.answer_callback_query(callback_id, "No AI draft reply is available.")
             return {"ok": False, "reason": "missing_draft_reply"}
 
-        ClientOutboundService.send_intake_reply(intake, intake.latest_draft_reply)
+        if not self._send_client_reply_or_notify(
+            intake=intake,
+            text=intake.latest_draft_reply,
+            chat_id=chat_id,
+            callback_id=callback_id,
+        ):
+            return {"ok": False, "reason": "client_send_failed"}
         intake.status = IntakeStatus.APPROVED
         intake.save(update_fields=["status", "updated_at"])
         HumanDecision.objects.create(
@@ -287,7 +302,7 @@ class TelegramWorkflowService:
         return {"ok": True, "action": "reject", "intake_id": intake.pk}
 
     @transaction.atomic
-    def _mark_manual(
+    def _mark_edit_reply(
         self,
         intake: IntakeRequest,
         actor: ArtistProfile,
@@ -301,15 +316,50 @@ class TelegramWorkflowService:
         HumanDecision.objects.create(
             intake=intake,
             actor=actor,
-            action=HumanDecisionAction.NEEDS_MANUAL_REPLY,
+            action=HumanDecisionAction.EDIT_REPLY,
             telegram_chat_id=chat_id,
             telegram_message_id=message_id,
             telegram_callback_id=callback_id,
             raw_update=raw_update,
         )
-        self.telegram.answer_callback_query(callback_id, "Marked for manual reply.")
-        self.telegram.send_message(chat_id=chat_id, text=f"Request #{intake.pk} needs manual reply.")
-        return {"ok": True, "action": "manual", "intake_id": intake.pk}
+        self.telegram.answer_callback_query(callback_id, "Edit mode selected.")
+        self.telegram.send_message(
+            chat_id=chat_id,
+            text=f"Request #{intake.pk}: send an edited reply with /reply {intake.pk} your message.",
+        )
+        return {"ok": True, "action": "edit", "intake_id": intake.pk}
+
+    @transaction.atomic
+    def _send_hoss_group_reply(
+        self,
+        intake: IntakeRequest,
+        actor: ArtistProfile,
+        message: dict[str, Any],
+        raw_update: dict[str, Any],
+    ) -> dict[str, Any]:
+        text = (message.get("text") or "").strip()
+        if not self._send_client_reply_or_notify(
+            intake=intake,
+            text=text,
+            chat_id=message.get("chat", {}).get("id"),
+        ):
+            return {"ok": False, "reason": "client_send_failed"}
+        intake.status = IntakeStatus.APPROVED
+        intake.save(update_fields=["status", "updated_at"])
+        HumanDecision.objects.create(
+            intake=intake,
+            actor=actor,
+            action=HumanDecisionAction.EDIT_REPLY,
+            note=text,
+            telegram_chat_id=message.get("chat", {}).get("id"),
+            telegram_message_id=message.get("message_id"),
+            raw_update=raw_update,
+        )
+        self.telegram.send_message(
+            chat_id=message.get("chat", {}).get("id"),
+            text=f"Edited reply sent to client for Request #{intake.pk}.",
+        )
+        return {"ok": True, "action": "edit_reply_sent", "intake_id": intake.pk}
 
     @transaction.atomic
     def _send_artist_reply(
@@ -328,7 +378,13 @@ class TelegramWorkflowService:
 
         text = (message.get("text") or message.get("caption") or "").strip()
         media_items = self._extract_media_items(message)
-        ClientOutboundService.send_intake_reply(intake, text, media_items=media_items)
+        if not self._send_client_reply_or_notify(
+            intake=intake,
+            text=text,
+            chat_id=message.get("chat", {}).get("id"),
+            media_items=media_items,
+        ):
+            return {"ok": False, "reason": "client_send_failed"}
         HumanDecision.objects.create(
             intake=intake,
             actor=artist,
@@ -343,6 +399,30 @@ class TelegramWorkflowService:
             text=f"Sent to client for Request #{intake.pk}.",
         )
         return {"ok": True, "action": "artist_reply", "intake_id": intake.pk}
+
+    def _send_client_reply_or_notify(
+        self,
+        intake: IntakeRequest,
+        text: str,
+        chat_id: int | None,
+        callback_id: str | None = None,
+        media_items: list[dict[str, Any]] | None = None,
+    ) -> bool:
+        try:
+            ClientOutboundService.send_intake_reply(intake, text, media_items=media_items)
+        except (ValueError, MetaAPIError, OutlookAPIError) as exc:
+            logger.warning("Could not send client reply for intake=%s: %s", intake.pk, exc)
+            if callback_id:
+                self.telegram.answer_callback_query(callback_id, "Could not send reply to client.")
+            self.telegram.send_message(
+                chat_id=chat_id,
+                text=(
+                    f"Request #{intake.pk}: could not send reply to client.\n"
+                    f"Reason: {escape(str(exc))}"
+                ),
+            )
+            return False
+        return True
 
     def _extract_media_items(self, message: dict[str, Any]) -> list[dict[str, Any]]:
         media_items: list[dict[str, Any]] = []
@@ -377,7 +457,7 @@ class TelegramWorkflowService:
         keyboard = [
             [
                 {"text": "Approve AI Reply", "callback_data": f"{self.CALLBACK_PREFIX}:approve:{intake.pk}"},
-                {"text": "Needs Manual Reply", "callback_data": f"{self.CALLBACK_PREFIX}:manual:{intake.pk}"},
+                {"text": "Edit Reply", "callback_data": f"{self.CALLBACK_PREFIX}:edit:{intake.pk}"},
             ],
             [
                 {"text": "Reject", "callback_data": f"{self.CALLBACK_PREFIX}:reject:{intake.pk}"},
@@ -426,7 +506,8 @@ class TelegramWorkflowService:
             f"Source: {escape(intake.source)}\n\n"
             f"{escape(text or '')}"
             f"{media_note}\n\n"
-            "Reply to this message to answer the client."
+            "Reply to this message to answer the client, or use:\n"
+            f"<code>/reply {intake.pk} your message</code>"
         )
 
     def _store_message_link(
