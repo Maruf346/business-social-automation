@@ -180,6 +180,7 @@ Telegram:
 - Older cards with the previous `manual` callback action are treated as Edit Reply for backward compatibility.
 - Artist private replies should be mapped by `reply_to_message.message_id` to a stored `TelegramMessageLink`.
 - Assigned artist fallback reply format should be `/reply REQUEST_ID message text`.
+- Assigned artist private cards include request context: idea, approved/AI price, optional price note, placement, size, color, and summary.
 - Artists can send text, photos, or documents in private replies. WhatsApp receives media through Meta link sends; Outlook receives media links in the email reply.
 - Fake/admin-created intakes with `source=other` can test Telegram cards and button routing, but they cannot send real client replies. Approve/Edit/artist send actions should report this in Telegram instead of crashing the webhook.
 

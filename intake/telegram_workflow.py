@@ -657,10 +657,31 @@ class TelegramWorkflowService:
         if media_items:
             media_note = "\nMedia: " + ", ".join(escape(item.get("url", "")) for item in media_items if item.get("url"))
 
+        detail_lines = [
+            f"Idea: {escape(intake.tattoo_idea or 'Unclear')}",
+            f"Approved Price: {escape(intake.approved_price or 'Not approved')}",
+        ]
+        if intake.ai_suggested_price:
+            detail_lines.append(f"AI suggested price: {escape(intake.ai_suggested_price or 'None')}")
+        if intake.price_note:
+            detail_lines.append(f"Price note: {escape(intake.price_note or 'None')}")
+        if intake.placement:
+            detail_lines.append(f"Placement: {escape(intake.placement or 'None')}")
+        if intake.size_estimate_cm:
+            detail_lines.append(f"Size: {escape(intake.size_estimate_cm or 'None')}")
+        if intake.color_preference:
+            detail_lines.append(f"Color: {escape(intake.color_preference or 'None')}")
+
+        summary_section = ""
+        if intake.latest_summary:
+            summary_section = f"\n\n<b>Summary</b>\n{escape(intake.latest_summary)}"
+
         return (
             f"<b>Request #{intake.pk}</b>\n"
             f"Client: {escape(str(intake.lead))}\n"
-            f"Source: {escape(intake.source)}\n\n"
+            f"Source: {escape(intake.source)}\n"
+            f"{chr(10).join(detail_lines)}"
+            f"{summary_section}\n\n"
             f"{escape(text or '')}"
             f"{media_note}\n\n"
             "Reply to this message to answer the client, or use:\n"

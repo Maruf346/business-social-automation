@@ -88,6 +88,7 @@ Current behavior:
 - High-risk review cards now use DB-driven inline buttons.
 - High-risk review cards show price, AI suggested price, optional price note, summary, and draft reply.
 - Assigned intakes route future client messages to the assigned artist's private Telegram inbox.
+- Assigned artist private cards include intake context such as idea, pricing, placement/size/color, and summary.
 - Artist private replies are mapped by reply-to message or `/reply REQUEST_ID ...` and sent back to the original client channel.
 - Client reply attempts are recorded in `OutboundAction` for AI auto-replies, waiting messages, Hoss-approved replies, Hoss-edited replies, and artist replies.
 
