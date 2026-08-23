@@ -120,6 +120,8 @@ Models:
 - `IntakeRequest`: latest known tattoo request state.
 - `AIAnalysis`: raw and normalized AI response snapshots.
 - `OutboundAction`: pending/sent/failed audit records for client reply attempts.
+- Current intake state stores AI summary, AI suggested price, Hoss-approved price, price note, approver, and approval timestamp.
+- Django admin for `IntakeRequest` is organized for local testing: summary, draft reply, AI suggested price, approved price, and price note can be edited directly before sending a Telegram review card.
 
 Service:
 
@@ -171,8 +173,10 @@ Telegram:
 - Telegram webhook endpoint now dispatches updates to `TelegramWorkflowService`.
 - `/whoami` returns Telegram user/chat IDs and stores private chat ID for registered artists.
 - Callback query handling supports Hoss-only approve/reject/Edit Reply/assign actions.
+- Callback query handling supports Hoss-only Edit Price.
 - Shared group actions must be authorized to Hoss only.
 - Edit Reply tells Hoss to send `/reply REQUEST_ID message text` in the group; only an artist with `can_approve=True` can send that command for an unassigned intake.
+- Edit Price tells Hoss to send `/price REQUEST_ID price | optional note`; this updates internal pricing only.
 - Older cards with the previous `manual` callback action are treated as Edit Reply for backward compatibility.
 - Artist private replies should be mapped by `reply_to_message.message_id` to a stored `TelegramMessageLink`.
 - Assigned artist fallback reply format should be `/reply REQUEST_ID message text`.

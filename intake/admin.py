@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from intake.models import AIAnalysis, ArtistProfile, HumanDecision, IntakeRequest, TelegramMessageLink
+from intake.models import AIAnalysis, ArtistProfile, HumanDecision, IntakeRequest, OutboundAction, TelegramMessageLink
 
 
 @admin.register(ArtistProfile)
@@ -28,13 +28,108 @@ class IntakeRequestAdmin(admin.ModelAdmin):
         "risk_level",
         "assigned_artist",
         "suggested_artist",
+        "approved_price",
+        "ai_suggested_price",
         "confidence_level",
         "is_active",
         "updated_at",
     )
     list_filter = ("status", "risk_level", "confidence_level", "assigned_artist", "source", "is_active", "created_at")
-    search_fields = ("lead__name", "lead__phone_number", "lead__email", "tattoo_idea", "suggested_artist")
+    list_editable = ("status", "risk_level", "approved_price", "ai_suggested_price", "is_active")
+    search_fields = (
+        "lead__name",
+        "lead__phone_number",
+        "lead__email",
+        "tattoo_idea",
+        "suggested_artist",
+        "latest_summary",
+        "approved_price",
+        "ai_suggested_price",
+    )
     readonly_fields = ("latest_raw_ai_response", "created_at", "updated_at")
+    raw_id_fields = (
+        "lead",
+        "conversation",
+        "whatsapp_account",
+        "outlook_account",
+        "last_incoming_message",
+    )
+    fieldsets = (
+        (
+            "Client And Routing",
+            {
+                "fields": (
+                    "lead",
+                    "conversation",
+                    "source",
+                    "whatsapp_account",
+                    "outlook_account",
+                    "outlook_user_id",
+                    "last_incoming_message",
+                    "assigned_artist",
+                )
+            },
+        ),
+        (
+            "Status",
+            {
+                "fields": (
+                    "status",
+                    "is_active",
+                    "risk_level",
+                    "confidence_level",
+                )
+            },
+        ),
+        (
+            "Tattoo Details",
+            {
+                "fields": (
+                    "tattoo_idea",
+                    "style_tags",
+                    "placement",
+                    "size_estimate_cm",
+                    "color_preference",
+                    "suggested_artist",
+                    "missing_information",
+                )
+            },
+        ),
+        (
+            "Summary And Draft Reply",
+            {
+                "fields": (
+                    "latest_summary",
+                    "ai_reasoning",
+                    "latest_draft_reply",
+                )
+            },
+        ),
+        (
+            "Pricing",
+            {
+                "fields": (
+                    "ai_suggested_price",
+                    "approved_price",
+                    "price_note",
+                    "price_approved_by",
+                    "price_approved_at",
+                )
+            },
+        ),
+        (
+            "Debug",
+            {
+                "classes": ("collapse",),
+                "fields": (
+                    "latest_raw_ai_response",
+                    "created_at",
+                    "updated_at",
+                ),
+            },
+        ),
+    )
+    save_on_top = True
     ordering = ("-updated_at",)
 
 
@@ -47,12 +142,82 @@ class AIAnalysisAdmin(admin.ModelAdmin):
         "message",
         "risk_level",
         "suggested_artist",
+        "suggested_price",
         "confidence_level",
         "created_at",
     )
     list_filter = ("endpoint", "risk_level", "confidence_level", "created_at")
-    search_fields = ("lead__name", "lead__phone_number", "lead__email", "tattoo_idea", "suggested_artist")
-    readonly_fields = ("raw_response", "created_at")
+    list_editable = ("risk_level", "suggested_price")
+    search_fields = (
+        "lead__name",
+        "lead__phone_number",
+        "lead__email",
+        "tattoo_idea",
+        "suggested_artist",
+        "summary",
+        "suggested_price",
+    )
+    readonly_fields = ("created_at",)
+    raw_id_fields = ("intake", "lead", "message")
+    fieldsets = (
+        (
+            "Links",
+            {
+                "fields": (
+                    "intake",
+                    "lead",
+                    "message",
+                    "endpoint",
+                )
+            },
+        ),
+        (
+            "AI Summary And Pricing",
+            {
+                "fields": (
+                    "summary",
+                    "suggested_price",
+                    "pricing_reasoning",
+                    "draft_reply",
+                )
+            },
+        ),
+        (
+            "Tattoo Details",
+            {
+                "fields": (
+                    "tattoo_idea",
+                    "style_tags",
+                    "placement",
+                    "size_estimate_cm",
+                    "color_preference",
+                    "suggested_artist",
+                    "missing_information",
+                )
+            },
+        ),
+        (
+            "Risk And Reasoning",
+            {
+                "fields": (
+                    "risk_level",
+                    "confidence_level",
+                    "ai_reasoning",
+                )
+            },
+        ),
+        (
+            "Debug",
+            {
+                "classes": ("collapse",),
+                "fields": (
+                    "raw_response",
+                    "created_at",
+                ),
+            },
+        ),
+    )
+    save_on_top = True
     ordering = ("-created_at",)
 
 
@@ -89,4 +254,23 @@ class TelegramMessageLinkAdmin(admin.ModelAdmin):
     list_filter = ("purpose", "artist", "is_active", "created_at")
     search_fields = ("intake__lead__name", "intake__lead__phone_number", "intake__lead__email")
     readonly_fields = ("raw_message", "created_at")
+    ordering = ("-created_at",)
+
+
+@admin.register(OutboundAction)
+class OutboundActionAdmin(admin.ModelAdmin):
+    list_display = (
+        "id",
+        "intake",
+        "lead",
+        "actor",
+        "source",
+        "action_type",
+        "status",
+        "created_at",
+        "sent_at",
+    )
+    list_filter = ("source", "action_type", "status", "actor", "created_at")
+    search_fields = ("intake__lead__name", "intake__lead__phone_number", "intake__lead__email", "text", "error_message")
+    readonly_fields = ("media_items", "provider_response", "created_at", "updated_at", "sent_at")
     ordering = ("-created_at",)

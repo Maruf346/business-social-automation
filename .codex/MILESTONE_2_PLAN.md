@@ -97,9 +97,9 @@ Recommended UX:
   - Approve Reply
   - Reject
   - Edit Reply
+  - Edit Price
   - Assign dynamic artist buttons from active DB records
   - Mark Unclear
-  - Add Price
   - Add Note
 - Use callback query endpoint to receive button clicks.
 - For simple text corrections, Hoss clicks Edit Reply and then sends `/reply REQUEST_ID message text` in the shared group.
@@ -114,6 +114,8 @@ Locked workflow decisions:
 - Assignment applies only to the active `IntakeRequest`, not the lead forever.
 - Hoss approving the AI draft reply immediately sends that draft to the client through the original source channel.
 - Hoss can choose Edit Reply instead of approving the AI draft; the edited reply is then sent through group command `/reply REQUEST_ID message text`.
+- Hoss can choose Edit Price and then update internal approved price with `/price REQUEST_ID price | optional note`.
+- Price updates do not send anything to the client automatically.
 - If Hoss approves without assigning an artist, the intake remains unassigned and future high-risk messages return to the shared group.
 - After an artist is assigned, future client messages for that intake are routed to the assigned artist's private Telegram chat.
 - Assigned artist replies are sent automatically to the client, without another Hoss approval step.
@@ -156,6 +158,9 @@ Implemented on 2026-08-22:
 - Added assigned-intake routing so future WhatsApp/Outlook client messages go to the assigned artist instead of AI.
 - Added text/photo/document artist reply support. Outlook media currently sends as links; WhatsApp media sends via Meta media links.
 - Added outbound audit logging for AI auto-replies, waiting messages, Hoss-approved replies, Hoss-edited replies, and artist replies.
+- Added summary and price persistence from AI responses.
+- Added Telegram card display for summary, AI suggested price, approved price, and price note.
+- Added Hoss-only Edit Price button and `/price REQUEST_ID price | optional note` command.
 
 Still needs live verification:
 
@@ -251,6 +256,8 @@ Rules:
 - Never auto-send price to client unless explicitly approved by Hoss.
 - Store price estimate and confidence as internal fields.
 - Log final approved price/range separately.
+- Current implementation stores AI suggested price as a string and Hoss-approved price/note as internal fields on `IntakeRequest`.
+- Hoss updates approved price with `/price REQUEST_ID price | optional note`.
 
 Deliverable:
 

@@ -36,6 +36,7 @@ class HumanDecisionAction(models.TextChoices):
     REJECT = "reject", "Reject"
     ASSIGN_ARTIST = "assign_artist", "Assign Artist"
     EDIT_REPLY = "edit_reply", "Edit Reply"
+    EDIT_PRICE = "edit_price", "Edit Price"
     ARTIST_REPLY = "artist_reply", "Artist Reply"
 
 
@@ -156,6 +157,18 @@ class IntakeRequest(models.Model):
         default=RiskLevel.UNKNOWN,
         db_index=True,
     )
+    latest_summary = models.TextField(blank=True, default="")
+    ai_suggested_price = models.CharField(max_length=255, blank=True, default="")
+    approved_price = models.CharField(max_length=255, blank=True, default="")
+    price_note = models.TextField(blank=True, default="")
+    price_approved_by = models.ForeignKey(
+        ArtistProfile,
+        on_delete=models.SET_NULL,
+        related_name="price_approved_intakes",
+        blank=True,
+        null=True,
+    )
+    price_approved_at = models.DateTimeField(blank=True, null=True)
     latest_draft_reply = models.TextField(blank=True, default="")
     latest_raw_ai_response = models.JSONField(default=dict, blank=True)
 
@@ -210,6 +223,9 @@ class AIAnalysis(models.Model):
         default=RiskLevel.UNKNOWN,
         db_index=True,
     )
+    summary = models.TextField(blank=True, default="")
+    suggested_price = models.CharField(max_length=255, blank=True, default="")
+    pricing_reasoning = models.TextField(blank=True, default="")
     draft_reply = models.TextField(blank=True, default="")
     raw_response = models.JSONField(default=dict, blank=True)
 

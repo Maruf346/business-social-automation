@@ -62,7 +62,7 @@ AI-backed intake state and analysis history.
 Key models:
 
 - `IntakeRequest`: canonical latest tattoo request state for a lead/conversation.
-- `AIAnalysis`: immutable snapshot of every AI analysis response, linked to the triggering message and intake.
+- `AIAnalysis`: immutable snapshot of every AI analysis response, linked to the triggering message and intake, including summary and AI suggested price.
 - `ArtistProfile`: admin-managed artists, Telegram user IDs, private chat IDs, and Hoss-only approval flag.
 - `HumanDecision`: approval, rejection, assignment, edited reply, and artist reply actions.
 - `TelegramMessageLink`: maps bot messages to intakes so private artist replies can be resolved safely.
@@ -86,6 +86,7 @@ Current behavior:
 - Low-risk responses continue client auto-reply.
 - High, medium, or unknown risk values route toward human review instead of auto-send.
 - High-risk review cards now use DB-driven inline buttons.
+- High-risk review cards show price, AI suggested price, optional price note, summary, and draft reply.
 - Assigned intakes route future client messages to the assigned artist's private Telegram inbox.
 - Artist private replies are mapped by reply-to message or `/reply REQUEST_ID ...` and sent back to the original client channel.
 - Client reply attempts are recorded in `OutboundAction` for AI auto-replies, waiting messages, Hoss-approved replies, Hoss-edited replies, and artist replies.
@@ -151,6 +152,9 @@ The analysis endpoint returns updated structured intake fields:
 - `ai_reasoning`
 - `missing_information`
 - `risk_level`
+- `summary`
+- `suggested_price` / `price`
+- `pricing_reasoning`
 - `draft_reply`: proposed client-facing reply.
 
 The backend also calls a summary endpoint for Telegram/human review. The summary endpoint is configured with `AI_SUMMARY_API_URL` and should be finalized with the AI engineer.
@@ -175,6 +179,8 @@ Artist assignment rules:
 - High-risk intakes first go to the shared Telegram group.
 - Hoss can approve an AI draft reply, reject, choose Edit Reply, or assign the active intake to an artist.
 - Edit Reply keeps the intake waiting for human action and tells Hoss to send the final client message with `/reply REQUEST_ID message text` in the shared group.
+- Hoss can choose Edit Price and then update internal approved pricing with `/price REQUEST_ID price | optional note`.
+- Price updates are internal only and do not send anything to the client.
 - Older Telegram cards using the previous `manual` callback action are still routed into the Edit Reply flow.
 - Only Hoss, represented by an active `ArtistProfile` with `can_approve=True`, can use group `/reply` for an unassigned intake.
 - Hoss can assign the intake to himself; after assignment, he receives private inbox messages like any other artist.

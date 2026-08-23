@@ -20,6 +20,9 @@ class IntakeStateService:
         "ai_reasoning",
         "missing_information",
         "risk_level",
+        "summary",
+        "suggested_price",
+        "pricing_reasoning",
         "draft_reply",
     )
 
@@ -79,6 +82,12 @@ class IntakeStateService:
                 "ai_reasoning": intake.ai_reasoning,
                 "missing_information": intake.missing_information,
                 "risk_level": cls._choice_value(intake.risk_level),
+                "latest_summary": intake.latest_summary,
+                "ai_suggested_price": intake.ai_suggested_price,
+                "approved_price": intake.approved_price,
+                "price_note": intake.price_note,
+                "price_approved_by": intake.price_approved_by.name if intake.price_approved_by else "",
+                "price_approved_at": intake.price_approved_at.isoformat() if intake.price_approved_at else "",
                 "latest_draft_reply": intake.latest_draft_reply,
             },
             "latest_ai_analysis": cls._analysis_state(latest_analysis),
@@ -147,6 +156,9 @@ class IntakeStateService:
             ai_reasoning=normalized["ai_reasoning"],
             missing_information=normalized["missing_information"],
             risk_level=normalized["risk_level"],
+            summary=normalized["summary"],
+            suggested_price=normalized["suggested_price"],
+            pricing_reasoning=normalized["pricing_reasoning"],
             draft_reply=normalized["draft_reply"],
             raw_response=response if isinstance(response, dict) else {},
         )
@@ -167,6 +179,8 @@ class IntakeStateService:
         intake.ai_reasoning = normalized["ai_reasoning"]
         intake.missing_information = normalized["missing_information"]
         intake.risk_level = normalized["risk_level"]
+        intake.latest_summary = normalized["summary"]
+        intake.ai_suggested_price = normalized["suggested_price"]
         intake.latest_draft_reply = normalized["draft_reply"]
         intake.latest_raw_ai_response = response if isinstance(response, dict) else {}
         intake.status = status
@@ -182,6 +196,8 @@ class IntakeStateService:
                 "ai_reasoning",
                 "missing_information",
                 "risk_level",
+                "latest_summary",
+                "ai_suggested_price",
                 "latest_draft_reply",
                 "latest_raw_ai_response",
                 "status",
@@ -216,6 +232,15 @@ class IntakeStateService:
             "ai_reasoning": cls._as_string(data.get("ai_reasoning")),
             "missing_information": cls._as_list(data.get("missing_information")),
             "risk_level": risk_level,
+            "summary": cls._as_string(data.get("summary")),
+            "suggested_price": cls._as_string(
+                data.get("suggested_price")
+                or data.get("ai_suggested_price")
+                or data.get("price")
+                or data.get("price_estimate")
+                or data.get("price_range")
+            ),
+            "pricing_reasoning": cls._as_string(data.get("pricing_reasoning") or data.get("price_reasoning")),
             "draft_reply": cls._as_string(data.get("draft_reply")),
         }
 
@@ -228,6 +253,9 @@ class IntakeStateService:
             "id": analysis.pk,
             "endpoint": analysis.endpoint,
             "ai_reasoning": analysis.ai_reasoning,
+            "summary": analysis.summary,
+            "suggested_price": analysis.suggested_price,
+            "pricing_reasoning": analysis.pricing_reasoning,
             "draft_reply": analysis.draft_reply,
             "risk_level": IntakeStateService._choice_value(analysis.risk_level),
             "created_at": analysis.created_at.isoformat(),

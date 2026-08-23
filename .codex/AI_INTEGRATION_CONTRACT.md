@@ -1,6 +1,6 @@
 # AI Integration Contract
 
-Last reviewed: 2026-08-22
+Last reviewed: 2026-08-23
 
 ## Ownership Boundary
 
@@ -88,9 +88,18 @@ Successful response:
     "size in cm"
   ],
   "risk_level": "low",
+  "summary": "string",
+  "suggested_price": "$250-$350",
+  "pricing_reasoning": "string",
   "draft_reply": "string"
 }
 ```
+
+Pricing note:
+
+- `suggested_price` is stored as text because AI may include currency, ranges, qualifiers, or "depends on size".
+- The backend also accepts equivalent price keys such as `price`, `price_estimate`, `price_range`, or `ai_suggested_price`.
+- AI suggested price is internal until Hoss approves or includes pricing in a client-facing reply.
 
 Known error responses:
 
@@ -166,6 +175,9 @@ Minimum state to persist per intake/request:
 - `ai_reasoning`
 - `missing_information`
 - `risk_level`
+- `summary`
+- `suggested_price`
+- `pricing_reasoning`
 - `draft_reply`
 - raw AI response payload
 - source message that caused the analysis
@@ -243,11 +255,18 @@ Recommended `existing_db_state`:
     "confidence_level": "high",
     "missing_information": ["size in cm"],
     "risk_level": "low",
+    "latest_summary": "string",
+    "ai_suggested_price": "$250-$350",
+    "approved_price": "$300",
+    "price_note": "approved after size review",
     "status": "collecting_info"
   },
   "latest_ai_analysis": {
     "id": 789,
     "ai_reasoning": "string",
+    "summary": "string",
+    "suggested_price": "$250-$350",
+    "pricing_reasoning": "string",
     "draft_reply": "string"
   }
 }
@@ -277,6 +296,8 @@ Backend should tolerate partial AI responses but should validate critical fields
 - Unknown or unsupported `risk_level` values normalize to `unknown`, which routes toward human review instead of auto-send.
 - Hoss-only approval and artist assignment happen after the high-risk AI route, not inside the AI service.
 - High-risk review cards now call backend Telegram workflow code; AI only provides summary/draft content.
+- Telegram review cards show stored summary, AI suggested price, approved price, price note, and draft reply.
+- Hoss can update internal approved price with `/price REQUEST_ID price | optional note`; this does not send anything to the client.
 - Assigned artist replies bypass AI and are sent to the client through the original channel.
 
 ## Open Implementation Questions

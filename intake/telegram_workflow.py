@@ -5,6 +5,7 @@ from html import escape
 from typing import Any
 
 from django.db import transaction
+from django.utils import timezone
 
 from core.exceptions import MetaAPIError, OutlookAPIError
 from core.services.telegram_bot_service import TelegramBotService
@@ -31,7 +32,10 @@ class TelegramWorkflowService:
         self.telegram = TelegramBotService()
 
     def send_review_card(self, intake: IntakeRequest, summary: str = "") -> dict:
-        text = summary or self._format_review_text(intake)
+        if summary:
+            intake.latest_summary = summary
+            intake.save(update_fields=["latest_summary", "updated_at"])
+        text = self._format_review_text(intake)
         response = self.telegram.send_message(
             text=text,
             reply_markup=self._build_review_keyboard(intake),
@@ -101,6 +105,8 @@ class TelegramWorkflowService:
             return self._reject_intake(intake, actor, callback_id, chat_id, message_id, raw_update)
         if action in ("edit", "manual"):
             return self._mark_edit_reply(intake, actor, callback_id, chat_id, message_id, raw_update)
+        if action == "price":
+            return self._mark_edit_price(intake, actor, callback_id, chat_id, message_id, raw_update)
         if action == "assign":
             artist = ArtistProfile.objects.get(pk=parsed["artist_id"], is_active=True)
             return self._assign_artist(intake, actor, artist, callback_id, chat_id, message_id, raw_update)
@@ -113,8 +119,9 @@ class TelegramWorkflowService:
         from_user = message.get("from", {})
         chat = message.get("chat", {})
         artist = self._get_artist_by_user(from_user.get("id"))
+        command = text.split(maxsplit=1)[0].split("@", 1)[0].lower() if text.startswith("/") else ""
 
-        if text.startswith("/whoami"):
+        if command == "/whoami":
             return self._handle_whoami(message, artist)
 
         if not artist:
@@ -124,7 +131,10 @@ class TelegramWorkflowService:
             )
             return {"ok": False, "reason": "unknown_artist"}
 
-        if text.startswith("/reply "):
+        if command == "/price":
+            return self._handle_price_command(message, artist, raw_update)
+
+        if command == "/reply":
             return self._handle_reply_command(message, artist, raw_update)
 
         if chat.get("type") != "private":
@@ -201,6 +211,44 @@ class TelegramWorkflowService:
             text="This request is not assigned to you.",
         )
         return {"ok": False, "reason": "wrong_artist"}
+
+    def _handle_price_command(
+        self,
+        message: dict[str, Any],
+        artist: ArtistProfile,
+        raw_update: dict[str, Any],
+    ) -> dict[str, Any]:
+        chat_id = message.get("chat", {}).get("id")
+        if not artist.can_approve:
+            self.telegram.send_message(chat_id=chat_id, text="Only Hoss can edit price.")
+            return {"ok": False, "reason": "unauthorized"}
+
+        text = (message.get("text") or "").strip()
+        parts = text.split(" ", 2)
+        if len(parts) < 3 or not parts[1].isdigit() or not parts[2].strip():
+            self.telegram.send_message(
+                chat_id=chat_id,
+                text=(
+                    "Use /price REQUEST_ID approved price | optional note.\n"
+                    "Example: /price 1 $250-$350 | depends on final size"
+                ),
+            )
+            return {"ok": False, "reason": "invalid_price_command"}
+
+        intake = IntakeRequest.objects.filter(pk=int(parts[1]), is_active=True).first()
+        if not intake:
+            self.telegram.send_message(chat_id=chat_id, text="I could not find an active request with that ID.")
+            return {"ok": False, "reason": "unknown_intake"}
+
+        price, note = self._parse_price_text(parts[2])
+        if not price:
+            self.telegram.send_message(
+                chat_id=chat_id,
+                text="Price cannot be empty. Example: /price 1 $250-$350 | depends on final size",
+            )
+            return {"ok": False, "reason": "missing_price"}
+
+        return self._update_price(intake, artist, price, note, message, raw_update)
 
     @transaction.atomic
     def _approve_ai_reply(
@@ -333,6 +381,77 @@ class TelegramWorkflowService:
             text=f"Request #{intake.pk}: send an edited reply with /reply {intake.pk} your message.",
         )
         return {"ok": True, "action": "edit", "intake_id": intake.pk}
+
+    @transaction.atomic
+    def _mark_edit_price(
+        self,
+        intake: IntakeRequest,
+        actor: ArtistProfile,
+        callback_id: str,
+        chat_id: int | None,
+        message_id: int | None,
+        raw_update: dict[str, Any],
+    ) -> dict[str, Any]:
+        HumanDecision.objects.create(
+            intake=intake,
+            actor=actor,
+            action=HumanDecisionAction.EDIT_PRICE,
+            telegram_chat_id=chat_id,
+            telegram_message_id=message_id,
+            telegram_callback_id=callback_id,
+            raw_update=raw_update,
+        )
+        self.telegram.answer_callback_query(callback_id, "Price edit selected.")
+        self.telegram.send_message(
+            chat_id=chat_id,
+            text=(
+                f"Request #{intake.pk}: send the approved price with:\n"
+                f"<code>/price {intake.pk} $250 | optional note</code>\n\n"
+                "Examples:\n"
+                f"<code>/price {intake.pk} $250</code>\n"
+                f"<code>/price {intake.pk} $250-$350 | depends on final size</code>"
+            ),
+        )
+        return {"ok": True, "action": "edit_price", "intake_id": intake.pk}
+
+    @transaction.atomic
+    def _update_price(
+        self,
+        intake: IntakeRequest,
+        actor: ArtistProfile,
+        price: str,
+        note: str,
+        message: dict[str, Any],
+        raw_update: dict[str, Any],
+    ) -> dict[str, Any]:
+        intake.approved_price = price
+        intake.price_note = note
+        intake.price_approved_by = actor
+        intake.price_approved_at = timezone.now()
+        intake.save(
+            update_fields=[
+                "approved_price",
+                "price_note",
+                "price_approved_by",
+                "price_approved_at",
+                "updated_at",
+            ]
+        )
+        HumanDecision.objects.create(
+            intake=intake,
+            actor=actor,
+            action=HumanDecisionAction.EDIT_PRICE,
+            note=f"Price: {price}\nNote: {note}" if note else f"Price: {price}",
+            telegram_chat_id=message.get("chat", {}).get("id"),
+            telegram_message_id=message.get("message_id"),
+            raw_update=raw_update,
+        )
+
+        confirmation = f"Request #{intake.pk} price updated.\nPrice: {escape(price)}"
+        if note:
+            confirmation = f"{confirmation}\nNote: {escape(note)}"
+        self.telegram.send_message(chat_id=message.get("chat", {}).get("id"), text=confirmation)
+        return {"ok": True, "action": "price_updated", "intake_id": intake.pk}
 
     @transaction.atomic
     def _send_hoss_group_reply(
@@ -481,6 +600,9 @@ class TelegramWorkflowService:
                 {"text": "Edit Reply", "callback_data": f"{self.CALLBACK_PREFIX}:edit:{intake.pk}"},
             ],
             [
+                {"text": "Edit Price", "callback_data": f"{self.CALLBACK_PREFIX}:price:{intake.pk}"},
+            ],
+            [
                 {"text": "Reject", "callback_data": f"{self.CALLBACK_PREFIX}:reject:{intake.pk}"},
             ],
         ]
@@ -501,6 +623,18 @@ class TelegramWorkflowService:
         return {"inline_keyboard": keyboard}
 
     def _format_review_text(self, intake: IntakeRequest) -> str:
+        price_lines = [
+            f"Price: {escape(intake.approved_price or 'Not approved')}",
+        ]
+        if intake.ai_suggested_price:
+            price_lines.append(f"AI suggested price: {escape(intake.ai_suggested_price)}")
+        if intake.price_note:
+            price_lines.append(f"Price note: {escape(intake.price_note)}")
+
+        summary_section = ""
+        if intake.latest_summary:
+            summary_section = f"\n<b>Summary</b>\n{escape(intake.latest_summary)}\n"
+
         return (
             f"<b>High-risk request #{intake.pk}</b>\n"
             f"Client: {escape(str(intake.lead))}\n"
@@ -508,6 +642,8 @@ class TelegramWorkflowService:
             f"Idea: {escape(intake.tattoo_idea or 'Unclear')}\n"
             f"Artist suggestion: {escape(intake.suggested_artist or 'Unclear')}\n"
             f"Missing: {escape(', '.join(intake.missing_information) or 'None')}\n\n"
+            f"{chr(10).join(price_lines)}\n"
+            f"{summary_section}\n"
             f"<b>Draft reply</b>\n{escape(intake.latest_draft_reply or '')}"
         )
 
@@ -553,6 +689,11 @@ class TelegramWorkflowService:
             telegram_message_id=message_id,
             raw_message=message,
         )
+
+    @staticmethod
+    def _parse_price_text(text: str) -> tuple[str, str]:
+        price, separator, note = text.partition("|")
+        return price.strip(), note.strip() if separator else ""
 
     @staticmethod
     def _get_artist_by_user(telegram_user_id: Any) -> ArtistProfile | None:
