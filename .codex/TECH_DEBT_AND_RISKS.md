@@ -82,14 +82,29 @@ Impact:
 
 - The code path exists, but it still needs live verification against the deployed AI endpoint.
 - The current implementation does not yet expose an admin/operator workflow for reviewing these records beyond Django admin.
-- Human decisions and corrections are not implemented yet.
+- Human decisions and outbound action audit records exist; correction/business-rule learning records are still not implemented.
 
 Next:
 
 - Verify `existing_db_state` payload with the AI engineer.
 - Confirm AI response values for `risk_level` and `confidence_level`.
-- Build Telegram decision/correction models and callbacks.
+- Build correction/business-rule models when the feedback-learning phase starts.
 - Add validation before production auto-send.
+
+### Outbound Audit Logging Needs Live Provider Verification
+
+`OutboundAction` now records pending/sent/failed attempts for client replies.
+
+Impact:
+
+- The audit path is implemented for AI auto-replies, waiting messages, Hoss-approved replies, Hoss-edited replies, and artist replies.
+- Real provider response bodies are not yet stored in detail; WhatsApp provider message IDs are linked through the outgoing `Message`.
+- Outlook low-risk sends keep the existing staged pipeline and are wrapped with `OutboundAction` instead of being fully refactored through `ClientOutboundService`.
+
+Next:
+
+- Verify sent/failed statuses with real WhatsApp and Outlook provider failures.
+- Decide later whether to expose `OutboundAction` in admin or an operator dashboard.
 
 ### AI Service Contract Must Stay Versioned
 

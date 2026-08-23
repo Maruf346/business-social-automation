@@ -14,9 +14,11 @@ from intake.models import (
     HumanDecisionAction,
     IntakeRequest,
     IntakeStatus,
+    OutboundActionType,
     TelegramMessageLink,
     TelegramMessagePurpose,
 )
+from lead.choices import SEND_BY
 from intake.outbound import ClientOutboundService
 
 logger = logging.getLogger(__name__)
@@ -97,7 +99,7 @@ class TelegramWorkflowService:
             return self._approve_ai_reply(intake, actor, callback_id, chat_id, message_id, raw_update)
         if action == "reject":
             return self._reject_intake(intake, actor, callback_id, chat_id, message_id, raw_update)
-        if action == "edit":
+        if action in ("edit", "manual"):
             return self._mark_edit_reply(intake, actor, callback_id, chat_id, message_id, raw_update)
         if action == "assign":
             artist = ArtistProfile.objects.get(pk=parsed["artist_id"], is_active=True)
@@ -219,6 +221,9 @@ class TelegramWorkflowService:
             text=intake.latest_draft_reply,
             chat_id=chat_id,
             callback_id=callback_id,
+            action_type=OutboundActionType.HOSS_APPROVED_REPLY,
+            actor=actor,
+            send_by=SEND_BY.AGENT,
         ):
             return {"ok": False, "reason": "client_send_failed"}
         intake.status = IntakeStatus.APPROVED
@@ -342,6 +347,9 @@ class TelegramWorkflowService:
             intake=intake,
             text=text,
             chat_id=message.get("chat", {}).get("id"),
+            action_type=OutboundActionType.HOSS_EDITED_REPLY,
+            actor=actor,
+            send_by=SEND_BY.AGENT,
         ):
             return {"ok": False, "reason": "client_send_failed"}
         intake.status = IntakeStatus.APPROVED
@@ -383,6 +391,9 @@ class TelegramWorkflowService:
             text=text,
             chat_id=message.get("chat", {}).get("id"),
             media_items=media_items,
+            action_type=OutboundActionType.ARTIST_REPLY,
+            actor=artist,
+            send_by=SEND_BY.AGENT,
         ):
             return {"ok": False, "reason": "client_send_failed"}
         HumanDecision.objects.create(
@@ -407,9 +418,19 @@ class TelegramWorkflowService:
         chat_id: int | None,
         callback_id: str | None = None,
         media_items: list[dict[str, Any]] | None = None,
+        action_type: str = OutboundActionType.AI_AUTO_REPLY,
+        actor: ArtistProfile | None = None,
+        send_by: str | None = None,
     ) -> bool:
         try:
-            ClientOutboundService.send_intake_reply(intake, text, media_items=media_items)
+            ClientOutboundService.send_intake_reply(
+                intake,
+                text,
+                media_items=media_items,
+                action_type=action_type,
+                actor=actor,
+                send_by=send_by,
+            )
         except (ValueError, MetaAPIError, OutlookAPIError) as exc:
             logger.warning("Could not send client reply for intake=%s: %s", intake.pk, exc)
             if callback_id:

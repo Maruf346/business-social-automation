@@ -119,10 +119,12 @@ Models:
 
 - `IntakeRequest`: latest known tattoo request state.
 - `AIAnalysis`: raw and normalized AI response snapshots.
+- `OutboundAction`: pending/sent/failed audit records for client reply attempts.
 
 Service:
 
 - `IntakeStateService` builds `existing_db_state` and applies AI responses back to the database.
+- `ClientOutboundService` sends WhatsApp/Outlook replies and creates `OutboundAction` records for supported outbound paths.
 
 After model changes:
 
@@ -171,6 +173,7 @@ Telegram:
 - Callback query handling supports Hoss-only approve/reject/Edit Reply/assign actions.
 - Shared group actions must be authorized to Hoss only.
 - Edit Reply tells Hoss to send `/reply REQUEST_ID message text` in the group; only an artist with `can_approve=True` can send that command for an unassigned intake.
+- Older cards with the previous `manual` callback action are treated as Edit Reply for backward compatibility.
 - Artist private replies should be mapped by `reply_to_message.message_id` to a stored `TelegramMessageLink`.
 - Assigned artist fallback reply format should be `/reply REQUEST_ID message text`.
 - Artists can send text, photos, or documents in private replies. WhatsApp receives media through Meta link sends; Outlook receives media links in the email reply.

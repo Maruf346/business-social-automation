@@ -15,12 +15,13 @@ from core.services.ai_service import AIService
 from core.services.message_service import MessageService
 from core.services.outlook_api import OutlookAPIService, OutlookAPIError
 from core.models import OutlookAccount
-from intake.models import IntakeRequest, IntakeSource, RiskLevel
+from intake.models import IntakeRequest, IntakeSource, OutboundAction, OutboundActionStatus, OutboundActionType, RiskLevel
+from intake.outbound import ClientOutboundService
 from intake.services import IntakeStateService
 from intake.telegram_workflow import TelegramWorkflowService
 from lead.models import Lead, Conversation, Message
 from core.services.media_service import MediaService, MediaDownloadError
-from lead.choices import MESSAGE_STATUS
+from lead.choices import MESSAGE_STATUS, SEND_BY
 
 logger = logging.getLogger(__name__)
 
@@ -144,14 +145,14 @@ def process_message_reply(self, incoming_message_id: int, lead_id: int, waba_id:
     risk_level = ai_analysis.risk_level
     if risk_level in (RiskLevel.HIGH, RiskLevel.MEDIUM, RiskLevel.UNKNOWN):
         try:
-            meta_svc = MetaAPIService(waba)
-            meta_svc.send_text_message(
-                to=sender_phone,
-                body=(
+            ClientOutboundService.send_intake_reply(
+                intake=intake,
+                text=(
                     "Thank you for your message. "
                     "Our team is reviewing your request. "
                     "We'll get back to you shortly."
                 ),
+                action_type=OutboundActionType.WAITING_MESSAGE,
             )
         except Exception:
             logger.exception("Failed to send waiting message.")
@@ -181,43 +182,33 @@ def process_message_reply(self, incoming_message_id: int, lead_id: int, waba_id:
         }
     elif risk_level in ("low",):
         # Save outgoing message ──────────────────────
-        outgoing = MessageService.save_outgoing_message(
-            lead=lead,
-            content=draft_reply,
-        )
+        outgoing = None
 
         # Send via Meta API ──────────────────────
         try:
             time.sleep(2)
-            meta_svc = MetaAPIService(waba)
-            meta_response = meta_svc.send_text_message(
-                to=sender_phone,
-                body=draft_reply,
+            outgoing = ClientOutboundService.send_intake_reply(
+                intake=intake,
+                text=draft_reply,
+                action_type=OutboundActionType.AI_AUTO_REPLY,
+                send_by=SEND_BY.AI,
             )
             # Link Meta wamid ──────────────────────
-            wamid = MetaAPIService.extract_message_id(meta_response)
-            if wamid:
-                outgoing.provider_message_id = wamid
-                outgoing.save(update_fields=["provider_message_id", "updated_at"])
-                logger.info("Outgoing message id=%s linked to wamid=%s", outgoing.pk, wamid)
         except MetaAPIError:
             if self.request.retries >= self.max_retries:
                 logger.exception(
                     "Meta API failed after %s retries for lead=%s msg=%s",
-                    self.request.retries, lead_id, outgoing.pk,
+                    self.request.retries, lead_id, incoming_message_id,
                 )
-                outgoing.status = MESSAGE_STATUS.FAILED
-                outgoing.error_message = "Meta API send failed after retries"
-                outgoing.save(update_fields=["status", "error_message", "updated_at"])
-                return {"status": "failed", "outgoing_message_id": outgoing.pk}
+                return {"status": "failed", "intake_id": intake.pk}
             else:
                 raise  # autoretry handles it
 
         logger.info("Task complete: process_message_reply | lead=%s", lead_id)
         return {
             "status": "success",
-            "outgoing_message_id": outgoing.pk,
-            "wamid": wamid if 'wamid' in dir() else "",
+            "outgoing_message_id": outgoing.pk if outgoing else None,
+            "wamid": outgoing.provider_message_id if outgoing and outgoing.provider_message_id else "",
             "image_urls": image_urls,
             "intake_id": intake.pk,
             "ai_analysis_id": ai_analysis.pk,
@@ -520,14 +511,14 @@ def step3_send_outlook_reply(self, pipeline_data: dict) -> dict:
     if risk_level in (RiskLevel.HIGH, RiskLevel.MEDIUM, RiskLevel.UNKNOWN):
         summary = pipeline_data.get("summary")
         try:
-            outlook_svc.send_reply(
-                user_id=user_id,
-                message_id=message_id,
-                body_html=(
+            ClientOutboundService.send_intake_reply(
+                intake=IntakeRequest.objects.get(pk=pipeline_data["intake_id"]),
+                text=(
                     "Thank you for your message. "
                     "Our team is reviewing your request. "
                     "We'll get back to you shortly."
-                )
+                ),
+                action_type=OutboundActionType.WAITING_MESSAGE,
             )
             logger.info("Outlook reply sent for email id=%s", message_id)
         except Exception:
@@ -550,6 +541,16 @@ def step3_send_outlook_reply(self, pipeline_data: dict) -> dict:
         # Load Outgoing instance to update status on failure
         outgoing_id = pipeline_data["outgoing_message_id"]
         outgoing = Message.objects.get(pk=outgoing_id) 
+        intake = IntakeRequest.objects.get(pk=pipeline_data["intake_id"])
+        outbound_action = OutboundAction.objects.create(
+            intake=intake,
+            lead=intake.lead,
+            conversation=intake.conversation,
+            message=outgoing,
+            source=IntakeSource.OUTLOOK,
+            action_type=OutboundActionType.AI_AUTO_REPLY,
+            text=outgoing.content or "",
+        )
 
         try:
             outlook_svc.send_reply(
@@ -559,6 +560,9 @@ def step3_send_outlook_reply(self, pipeline_data: dict) -> dict:
             )
             logger.info("Outlook reply sent for email id=%s", message_id)
         except OutlookAPIError as exc:
+            outbound_action.status = OutboundActionStatus.FAILED
+            outbound_action.error_message = str(exc)
+            outbound_action.save(update_fields=["status", "error_message", "updated_at"])
             if self.request.retries >= self.max_retries:
                 logger.exception("Graph API reply failed after %s retries for msg_id=%s", self.request.retries, message_id)
                 outgoing.status = MESSAGE_STATUS.FAILED
@@ -567,6 +571,10 @@ def step3_send_outlook_reply(self, pipeline_data: dict) -> dict:
                 return {"status": "failed", "outgoing_message_id": outgoing.pk}
             else:
                 raise self.retry(exc=exc) # Handled by autoretry
+
+        outbound_action.status = OutboundActionStatus.SENT
+        outbound_action.sent_at = tz.now()
+        outbound_action.save(update_fields=["status", "sent_at", "updated_at"])
 
         # Update conversation
         conversation = Conversation.objects.get(pk=pipeline_data["conversation_id"])

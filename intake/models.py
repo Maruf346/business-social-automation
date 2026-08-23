@@ -46,6 +46,20 @@ class TelegramMessagePurpose(models.TextChoices):
     BOT_INFO = "bot_info", "Bot Info"
 
 
+class OutboundActionType(models.TextChoices):
+    AI_AUTO_REPLY = "ai_auto_reply", "AI Auto Reply"
+    WAITING_MESSAGE = "waiting_message", "Waiting Message"
+    HOSS_APPROVED_REPLY = "hoss_approved_reply", "Hoss Approved Reply"
+    HOSS_EDITED_REPLY = "hoss_edited_reply", "Hoss Edited Reply"
+    ARTIST_REPLY = "artist_reply", "Artist Reply"
+
+
+class OutboundActionStatus(models.TextChoices):
+    PENDING = "pending", "Pending"
+    SENT = "sent", "Sent"
+    FAILED = "failed", "Failed"
+
+
 class ArtistProfile(models.Model):
     name = models.CharField(max_length=100, unique=True)
     telegram_user_id = models.BigIntegerField(blank=True, null=True, unique=True)
@@ -283,3 +297,58 @@ class TelegramMessageLink(models.Model):
 
     def __str__(self):
         return f"{self.purpose} message {self.telegram_message_id} for intake #{self.intake_id}"
+
+
+class OutboundAction(models.Model):
+    intake = models.ForeignKey(IntakeRequest, on_delete=models.CASCADE, related_name="outbound_actions")
+    lead = models.ForeignKey("lead.Lead", on_delete=models.CASCADE, related_name="outbound_actions")
+    conversation = models.ForeignKey(
+        "lead.Conversation",
+        on_delete=models.SET_NULL,
+        related_name="outbound_actions",
+        blank=True,
+        null=True,
+    )
+    message = models.ForeignKey(
+        "lead.Message",
+        on_delete=models.SET_NULL,
+        related_name="outbound_actions",
+        blank=True,
+        null=True,
+    )
+    actor = models.ForeignKey(
+        ArtistProfile,
+        on_delete=models.SET_NULL,
+        related_name="outbound_actions",
+        blank=True,
+        null=True,
+    )
+    source = models.CharField(max_length=20, choices=IntakeSource.choices, db_index=True)
+    action_type = models.CharField(max_length=40, choices=OutboundActionType.choices, db_index=True)
+    status = models.CharField(
+        max_length=20,
+        choices=OutboundActionStatus.choices,
+        default=OutboundActionStatus.PENDING,
+        db_index=True,
+    )
+    text = models.TextField(blank=True, default="")
+    media_items = models.JSONField(default=list, blank=True)
+    provider_message_id = models.CharField(max_length=500, blank=True, default="")
+    provider_response = models.JSONField(default=dict, blank=True)
+    error_message = models.TextField(blank=True, default="")
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    sent_at = models.DateTimeField(blank=True, null=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["intake", "created_at"]),
+            models.Index(fields=["lead", "created_at"]),
+            models.Index(fields=["status", "created_at"]),
+            models.Index(fields=["action_type", "created_at"]),
+            models.Index(fields=["source", "created_at"]),
+        ]
+
+    def __str__(self):
+        return f"{self.action_type} for intake #{self.intake_id} ({self.status})"

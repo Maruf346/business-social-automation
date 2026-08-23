@@ -61,10 +61,11 @@ Still planned:
 
 - `ArtistProfile`: Nina, Hoss, Lana, others; channel IDs; active status; specialties. Implemented 2026-08-22.
 - `HumanDecision`: approved/rejected/edited decision by Hoss or assigned artist action. Implemented 2026-08-22.
+- `OutboundAction`: pending/sent/failed client reply attempts for AI auto-replies, waiting messages, Hoss-approved replies, Hoss-edited replies, and artist replies. Implemented 2026-08-23.
 - `Correction`: changed artist, changed price, changed risk, changed message, reason.
 - `BusinessRule`: manually approved routing/pricing rules.
 - `SimilarCaseEmbedding`: vector reference to past approved cases, likely PostgreSQL + pgvector.
-- `OutboundAction`: pending/sent/failed client replies, booking confirmations, calendar actions.
+- Future extension: booking confirmations and calendar actions can also be logged through `OutboundAction` or a related operations model.
 
 Deliverable:
 
@@ -154,6 +155,7 @@ Implemented on 2026-08-22:
 - Added `/reply REQUEST_ID ...` fallback for assigned artists and Hoss-only group edited replies.
 - Added assigned-intake routing so future WhatsApp/Outlook client messages go to the assigned artist instead of AI.
 - Added text/photo/document artist reply support. Outlook media currently sends as links; WhatsApp media sends via Meta media links.
+- Added outbound audit logging for AI auto-replies, waiting messages, Hoss-approved replies, Hoss-edited replies, and artist replies.
 
 Still needs live verification:
 
@@ -307,7 +309,8 @@ Deliverable:
 5. Build Telegram callback handling and buttons.
 6. Persist human decisions. Done 2026-08-22.
 7. Implement approved outbound reply flow for high-risk requests. Done 2026-08-22.
-8. Add Postgres/pgvector learning retrieval.
-9. Add pricing and richer image tags.
-10. Add calendar and vCita.
-11. Harden deployment.
+8. Add outbound action audit logging. Done 2026-08-23.
+9. Add Postgres/pgvector learning retrieval.
+10. Add pricing and richer image tags.
+11. Add calendar and vCita.
+12. Harden deployment.

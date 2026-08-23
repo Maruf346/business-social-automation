@@ -66,6 +66,7 @@ Key models:
 - `ArtistProfile`: admin-managed artists, Telegram user IDs, private chat IDs, and Hoss-only approval flag.
 - `HumanDecision`: approval, rejection, assignment, edited reply, and artist reply actions.
 - `TelegramMessageLink`: maps bot messages to intakes so private artist replies can be resolved safely.
+- `OutboundAction`: audit trail for attempted client replies with pending/sent/failed status.
 
 Key services:
 
@@ -87,6 +88,7 @@ Current behavior:
 - High-risk review cards now use DB-driven inline buttons.
 - Assigned intakes route future client messages to the assigned artist's private Telegram inbox.
 - Artist private replies are mapped by reply-to message or `/reply REQUEST_ID ...` and sent back to the original client channel.
+- Client reply attempts are recorded in `OutboundAction` for AI auto-replies, waiting messages, Hoss-approved replies, Hoss-edited replies, and artist replies.
 
 ### `core`
 
@@ -108,6 +110,7 @@ Key flows:
 - Celery task calls the AI service.
 - Low-risk AI result sends client auto-reply.
 - High-risk AI result sends waiting message to client and Telegram summary to the team.
+- Client outbound attempts are audited through `OutboundAction` records.
 
 ## Current Routes
 
@@ -172,6 +175,7 @@ Artist assignment rules:
 - High-risk intakes first go to the shared Telegram group.
 - Hoss can approve an AI draft reply, reject, choose Edit Reply, or assign the active intake to an artist.
 - Edit Reply keeps the intake waiting for human action and tells Hoss to send the final client message with `/reply REQUEST_ID message text` in the shared group.
+- Older Telegram cards using the previous `manual` callback action are still routed into the Edit Reply flow.
 - Only Hoss, represented by an active `ArtistProfile` with `can_approve=True`, can use group `/reply` for an unassigned intake.
 - Hoss can assign the intake to himself; after assignment, he receives private inbox messages like any other artist.
 - Assignment applies to the active `IntakeRequest`, not permanently to the whole lead.

@@ -62,11 +62,16 @@ class MessageService:
         
     # Outgoing message
     @staticmethod
-    def save_outgoing_message(lead: Lead, content: str, provider_message_id: str = "",) -> Message:
+    def save_outgoing_message(
+        lead: Lead,
+        content: str,
+        provider_message_id: str = "",
+        send_by: str = SEND_BY.AI,
+    ) -> Message:
         message = Message.objects.create(
             provider_message_id=provider_message_id,
             lead=lead,
-            send_by=SEND_BY.AI,
+            send_by=send_by,
             direction=MESSAGE_DIRECTION.OUTGOING,
             message_type=MESSAGE_TYPE.TEXT,
             content=content,
@@ -186,13 +191,20 @@ class MessageService:
 
     # Save outgoing email reply
     @staticmethod
-    def save_outgoing_email(lead: Lead, conversation, subject: str, content: str, html_content: str = "",) -> Message:
+    def save_outgoing_email(
+        lead: Lead,
+        conversation,
+        subject: str,
+        content: str,
+        html_content: str = "",
+        send_by: str = SEND_BY.AI,
+    ) -> Message:
         from django.utils import timezone as tz
 
         message = Message.objects.create(
             lead=lead,
             conversation=conversation,
-            send_by=SEND_BY.AI,
+            send_by=send_by,
             direction=MESSAGE_DIRECTION.OUTGOING,
             message_type=MESSAGE_TYPE.TEXT,
             subject=f"Re: {subject}" if not subject.startswith("Re:") else subject,
