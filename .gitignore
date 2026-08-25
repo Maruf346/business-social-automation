@@ -199,3 +199,4 @@ cython_debug/
 
 structure.json
 docs/
+.env.production
