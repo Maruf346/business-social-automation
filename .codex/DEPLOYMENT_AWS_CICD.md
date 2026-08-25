@@ -22,6 +22,7 @@ Runtime plan:
 - nginx listens on port `80` and proxies to gunicorn on port `8007`.
 - Media uploads should use S3 when `USE_S3=True`.
 - Backend and AI should join the external Docker network `tattoo_hysteria_net` so the backend can call the AI container privately by service/container name.
+- After backend deploy, CI runs `docker image prune -af` to remove unused Docker images while preserving running containers, volumes, and networks.
 
 ## Files
 
