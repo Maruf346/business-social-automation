@@ -1,6 +1,6 @@
 # Development Guide
 
-Last reviewed: 2026-08-23
+Last reviewed: 2026-08-25
 
 ## Local Environment
 
@@ -36,6 +36,20 @@ Run local server:
 
 ```powershell
 .\.venv\Scripts\python.exe manage.py runserver 8007
+```
+
+Run with Docker locally:
+
+```powershell
+docker compose up --build
+```
+
+Production compose render check:
+
+```powershell
+$env:DOCKER_IMAGE="dockerhub_username/tattoo-hysteria-backend:latest"
+$env:POSTGRES_PASSWORD="change_me"
+docker compose -f docker-compose.prod.yml config
 ```
 
 Show migrations:
@@ -106,10 +120,43 @@ Current important variables:
 - `TELEGRAM_REVIEW_CHAT_ID`
 - `CELERY_TASK_ALWAYS_EAGER`
 - `CELERY_TASK_EAGER_PROPAGATES`
+- `DATABASE_URL`
+- `POSTGRES_DB`
+- `POSTGRES_USER`
+- `POSTGRES_PASSWORD`
+- `POSTGRES_HOST`
+- `POSTGRES_PORT`
+- `DATABASE_SSL_REQUIRE`
+- `DB_CONN_MAX_AGE`
+- `CELERY_BROKER_URL`
+- `USE_S3`
+- `AWS_ACCESS_KEY_ID`
+- `AWS_SECRET_ACCESS_KEY`
+- `AWS_STORAGE_BUCKET_NAME`
+- `AWS_S3_REGION_NAME`
+- `AWS_S3_CUSTOM_DOMAIN`
+- `AWS_LOCATION`
+- `AWS_QUERYSTRING_AUTH`
+- `AWS_DEFAULT_ACL`
+- `DOCKER_IMAGE`
+- `GUNICORN_WORKERS`
+- `GUNICORN_THREADS`
+- `GUNICORN_TIMEOUT`
 
-Recommended additions:
+GitHub Actions variables/secrets for Docker Hub:
 
-- Database URL or explicit PostgreSQL settings.
+- Repository variable `DOCKERHUB_USERNAME`.
+- Repository variable `DOCKERHUB_REPOSITORY`, optional, defaults to `tattoo-hysteria-backend`.
+- Repository secret `DOCKERHUB_TOKEN`.
+
+GitHub Actions variables/secrets for EC2 deploy:
+
+- Repository variable `ENABLE_EC2_DEPLOY=true` to enable deployment.
+- Repository variable `EC2_APP_DIR`, optional, defaults to `/opt/tattoo-hysteria-backend`.
+- Repository secret `EC2_HOST`.
+- Repository secret `EC2_USER`.
+- Repository secret `EC2_SSH_KEY`.
+- Repository secret `EC2_SSH_PORT`, optional.
 
 ## Intake State App
 

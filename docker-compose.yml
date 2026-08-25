@@ -1,19 +1,32 @@
 services:
+  db:
+    image: postgres:16-alpine
+    container_name: tattoo_hysteria_db
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-tattoo_hysteria}
+      POSTGRES_USER: ${POSTGRES_USER:-tattoo_hysteria}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-tattoo_hysteria_password}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    container_name: tattoo_hysteria_redis
+    ports:
+      - "6379:6379"
+    restart: unless-stopped
+
   backend:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: tatto_hysteria_backend
+    container_name: tattoo_hysteria_backend
 
     command: >
-      sh -c "
-      python manage.py migrate &&
-      gunicorn site_config.wsgi:application
-      --bind 0.0.0.0:8007
-      --workers 3
-      --threads 2
-      --timeout 120
-      "
+      /app/docker/start-web.sh
 
     volumes:
       - .:/app
@@ -23,6 +36,14 @@ services:
 
     env_file:
       - .env
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgres://${POSTGRES_USER:-tattoo_hysteria}:${POSTGRES_PASSWORD:-tattoo_hysteria_password}@db:5432/${POSTGRES_DB:-tattoo_hysteria}}
+      CELERY_BROKER_URL: ${CELERY_BROKER_URL:-redis://redis:6379/0}
+    depends_on:
+      - db
+      - redis
 
-    restart: always
-  
+    restart: unless-stopped
+
+volumes:
+  postgres_data:

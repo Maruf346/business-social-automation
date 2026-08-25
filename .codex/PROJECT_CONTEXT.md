@@ -1,6 +1,6 @@
 # Project Context
 
-Last reviewed: 2026-08-23
+Last reviewed: 2026-08-25
 
 ## Product Goal
 
@@ -26,7 +26,8 @@ This repository does not own the AI implementation itself. An AI engineer is bui
 - API docs: drf-spectacular, Swagger at `/api/docs/`.
 - Auth/config scaffolding: SimpleJWT, custom `account.User`.
 - Task system: Celery, currently configured as eager in local settings.
-- Database: SQLite in current settings; Milestone 2 expects PostgreSQL, likely with pgvector.
+- Database: SQLite by default for local direct `runserver`; Postgres is supported through `DATABASE_URL` or `POSTGRES_*` env vars and is used by Docker Compose.
+- Deployment: Docker image build, production compose, nginx reverse proxy, Redis service, and optional S3 media storage are now scaffolded.
 - External APIs: Meta WhatsApp Graph API, Microsoft Graph API, Telegram Bot API, external AI API.
 
 Important mismatch: the Milestone 2 note mentions FastAPI, LangChain/LangGraph, PostgreSQL, and AWS. The current repo is Django/DRF/Celery/SQLite. Prefer evolving this Django backend unless a rewrite is explicitly approved.
@@ -124,6 +125,22 @@ Key flows:
 - `/api/schema/` - OpenAPI schema.
 - `/api/docs/` - Swagger UI.
 - `/api/redoc/` - ReDoc UI.
+
+## Deployment Shape
+
+Current deployment target is AWS EC2 without a custom domain for the first pass.
+
+Implemented deployment assets:
+
+- `Dockerfile` builds the Django/gunicorn image and runs `docker/start-web.sh`.
+- `docker/start-web.sh` runs migrations, collects static files, and starts gunicorn on port `8007`.
+- `docker-compose.yml` supports local container runs with backend, Postgres, and Redis.
+- `docker-compose.prod.yml` runs backend image, Postgres, Redis, and nginx.
+- `nginx/default.conf` listens on port `80` and proxies all traffic to the backend container.
+- `.github/workflows/pipeline.yml` builds and pushes the Docker image to Docker Hub on pushes to `main`.
+- The EC2 deploy job is gated by `ENABLE_EC2_DEPLOY=true` and then pulls the latest image and restarts `docker-compose.prod.yml` over SSH.
+
+Media uploads are prepared for S3 through `USE_S3=True` and AWS S3 env vars. Local media remains the default when S3 is disabled.
 
 ## AI Service Contract
 

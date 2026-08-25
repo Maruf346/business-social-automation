@@ -16,6 +16,8 @@ django-extensions==4.1
 django-filter==26.1
 django-json-widget==2.1.1
 django_celery_results==2.6.0
+django-storages[s3]==1.14.6
+dj-database-url==3.0.1
 djangorestframework==3.17.1
 djangorestframework_simplejwt==5.5.1
 drf-spectacular==0.30.0
@@ -29,6 +31,7 @@ Markdown==3.10.2
 packaging==26.2
 pillow==12.3.0
 prompt_toolkit==3.0.52
+psycopg[binary]==3.2.13
 PyJWT==2.13.0
 python-dateutil==2.9.0.post0
 python-dotenv==1.2.2

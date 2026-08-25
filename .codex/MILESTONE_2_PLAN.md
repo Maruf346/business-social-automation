@@ -1,6 +1,6 @@
 # Milestone 2 Plan
 
-Last reviewed: 2026-08-23
+Last reviewed: 2026-08-25
 
 ## Milestone 2 Goal
 
@@ -307,6 +307,26 @@ Deliverable:
 
 - Production deployment with monitoring and recovery path.
 
+Implemented deployment scaffolding on 2026-08-25:
+
+- Dockerfile now uses a slim Python image and starts through `docker/start-web.sh`.
+- `docker/start-web.sh` runs migrations, collects static assets, and starts gunicorn.
+- Local Docker Compose now includes backend, Postgres, and Redis.
+- Production Docker Compose now includes backend image, Postgres, Redis, and nginx.
+- nginx listens on port `80` and proxies to backend port `8007`.
+- Django settings now support `DATABASE_URL`, explicit `POSTGRES_*` variables, Redis broker env, reverse-proxy headers, and optional S3 media storage.
+- GitHub Actions pipeline now builds and pushes a Docker Hub image on `main`.
+- Optional EC2 deploy job is available but gated behind `ENABLE_EC2_DEPLOY=true`.
+
+Still needed:
+
+- Create AWS S3 bucket and IAM policy/user/role for media.
+- Create EC2 instance and production `.env`.
+- Add GitHub Docker Hub secrets/variables.
+- Add EC2 SSH secrets/variables and enable deploy after the server is prepared.
+- Verify first Docker image build and live EC2 deploy.
+- Consider RDS instead of containerized Postgres before real production traffic.
+
 ## Suggested Build Order
 
 1. Stabilize existing webhooks and env config.
@@ -320,4 +340,4 @@ Deliverable:
 9. Add Postgres/pgvector learning retrieval.
 10. Add pricing and richer image tags.
 11. Add calendar and vCita.
-12. Harden deployment.
+12. Harden deployment. Started 2026-08-25 with Docker Hub CI/CD, production compose, nginx, Postgres env support, Redis env support, and optional S3 media settings.

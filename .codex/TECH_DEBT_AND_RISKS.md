@@ -1,6 +1,6 @@
 # Technical Debt and Risks
 
-Last reviewed: 2026-08-23
+Last reviewed: 2026-08-25
 
 ## High Priority
 
@@ -134,17 +134,38 @@ Next:
 
 - Consider replacing implicit signals with explicit admin/service actions if subscription side effects become hard to reason about.
 
-### Docker Gunicorn Dependency Added
+### Docker Deployment Needs Real Server Verification
 
-Dockerfile and docker-compose run `gunicorn`, and `requirements.txt` now includes it.
+Dockerfile, local compose, production compose, nginx proxy, Docker Hub CI, and optional EC2 deploy scaffolding now exist.
 
 Impact:
 
-- Docker still needs a full build/run verification before production use.
+- Django system checks pass locally.
+- Compose files render, but Docker emitted a local Windows Docker config permission warning while reading `C:\Users\maruf\.docker\config.json`.
+- The image build/push and EC2 pull/restart flow still need to be verified with real Docker Hub and AWS credentials.
+- The production deploy assumes the EC2 app directory contains this repository and a production `.env`.
 
 Next:
 
-- Verify Docker image build in the target environment.
+- Add GitHub repository variables/secrets.
+- Build and push the first image.
+- Prepare EC2 with Docker, Docker Compose, and the repo checkout.
+- Run the first production compose startup and verify `/api/docs/` over the EC2 public IP.
+
+### S3 Media Storage Prepared But Not Live
+
+Settings support S3 media through `USE_S3=True` and AWS S3 env vars.
+
+Impact:
+
+- Local media remains default.
+- S3 behavior needs a real bucket, IAM credentials, and an access decision: public bucket policy/CDN URLs or signed URLs.
+
+Next:
+
+- Create the S3 bucket.
+- Configure least-privilege IAM access for object upload/read.
+- Decide whether AI image URLs must be public or signed.
 
 ### Celery Is Eager
 

@@ -6,11 +6,23 @@ load_dotenv()
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
+def env_bool(name, default=False):
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return value.strip().lower() in ("true", "1", "yes", "on")
+
+
+def env_list(name, default=""):
+    return [item.strip() for item in os.getenv(name, default).split(",") if item.strip()]
+
 
 SECRET_KEY = os.getenv("SECRET_KEY")
-DEBUG = os.getenv('DEBUG', 'False').strip().lower() in ('true', '1', 'yes')
-ALLOWED_HOSTS = os.getenv("ALLOWED_HOSTS").split(",")
-CSRF_TRUSTED_ORIGINS = os.getenv("CSRF_TRUSTED_ORIGINS", "").split(",")
+DEBUG = env_bool("DEBUG", False)
+ALLOWED_HOSTS = env_list("ALLOWED_HOSTS", "localhost,127.0.0.1")
+CSRF_TRUSTED_ORIGINS = env_list("CSRF_TRUSTED_ORIGINS")
+SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+USE_X_FORWARDED_HOST = True
 
 
 # Application definition
@@ -31,10 +43,13 @@ INSTALLED_APPS = [
     'account', 'core.apps.CoreConfig', 'lead', 'intake',
 ]
 
+if env_bool("USE_S3", False):
+    INSTALLED_APPS.append("storages")
+
 MIDDLEWARE = [
     'corsheaders.middleware.CorsMiddleware',
-    'whitenoise.middleware.WhiteNoiseMiddleware',
     'django.middleware.security.SecurityMiddleware',
+    'whitenoise.middleware.WhiteNoiseMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -132,12 +147,36 @@ TEMPLATES = [
 WSGI_APPLICATION = 'site_config.wsgi.application'
 
 # Database
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
+DATABASE_URL = os.getenv("DATABASE_URL")
+if DATABASE_URL:
+    import dj_database_url
+
+    DATABASES = {
+        "default": dj_database_url.parse(
+            DATABASE_URL,
+            conn_max_age=int(os.getenv("DB_CONN_MAX_AGE", "600")),
+            ssl_require=env_bool("DATABASE_SSL_REQUIRE", False),
+        )
     }
-}
+elif os.getenv("POSTGRES_DB"):
+    DATABASES = {
+        "default": {
+            "ENGINE": "django.db.backends.postgresql",
+            "NAME": os.getenv("POSTGRES_DB"),
+            "USER": os.getenv("POSTGRES_USER"),
+            "PASSWORD": os.getenv("POSTGRES_PASSWORD"),
+            "HOST": os.getenv("POSTGRES_HOST", "localhost"),
+            "PORT": os.getenv("POSTGRES_PORT", "5432"),
+            "CONN_MAX_AGE": int(os.getenv("DB_CONN_MAX_AGE", "600")),
+        }
+    }
+else:
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.sqlite3',
+            'NAME': BASE_DIR / 'db.sqlite3',
+        }
+    }
 
 
 # Password validation
@@ -166,7 +205,7 @@ USE_TZ = True
 
 # ==========================================================================================
 # =================Celery & Redis Config Start================================
-CELERY_BROKER_URL = "redis://127.0.0.1:6380/0"
+CELERY_BROKER_URL = os.getenv("CELERY_BROKER_URL", "redis://127.0.0.1:6380/0")
 # CELERY_BROKER_URL = "redis://127.0.0.1:6379/0"
 CELERY_ACCEPT_CONTENT = ["json"]
 CELERY_TASK_SERIALIZER = "json"
@@ -185,10 +224,44 @@ CELERY_TASK_EAGER_PROPAGATES = os.getenv("CELERY_TASK_EAGER_PROPAGATES", "True")
 STATIC_URL = "/static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
 STATICFILES_DIRS = [BASE_DIR / "static"]
+STORAGES = {
+    "default": {
+        "BACKEND": "django.core.files.storage.FileSystemStorage",
+    },
+    "staticfiles": {
+        "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage",
+    },
+}
 
-MEDIA_URL = 'media/'
+MEDIA_URL = '/media/'
 MEDIA_ROOT = os.getenv('MEDIA_ROOT', default=os.path.join(BASE_DIR, 'media'))
 MEDIA_BASE_URL = os.getenv('MEDIA_BASE_URL', 'https://55k6tr24-8007.inc1.devtunnels.ms/media/')
+
+if env_bool("USE_S3", False):
+    AWS_STORAGE_BUCKET_NAME = os.getenv("AWS_STORAGE_BUCKET_NAME")
+    AWS_S3_REGION_NAME = os.getenv("AWS_S3_REGION_NAME")
+    AWS_S3_CUSTOM_DOMAIN = os.getenv("AWS_S3_CUSTOM_DOMAIN", "")
+    AWS_QUERYSTRING_AUTH = env_bool("AWS_QUERYSTRING_AUTH", False)
+    AWS_DEFAULT_ACL = os.getenv("AWS_DEFAULT_ACL") or None
+    AWS_S3_OBJECT_PARAMETERS = {"CacheControl": os.getenv("AWS_S3_CACHE_CONTROL", "max-age=86400")}
+    AWS_LOCATION = os.getenv("AWS_LOCATION", "media")
+
+    if AWS_S3_CUSTOM_DOMAIN:
+        MEDIA_URL = f"https://{AWS_S3_CUSTOM_DOMAIN}/{AWS_LOCATION}/"
+    elif AWS_STORAGE_BUCKET_NAME and AWS_S3_REGION_NAME:
+        MEDIA_URL = f"https://{AWS_STORAGE_BUCKET_NAME}.s3.{AWS_S3_REGION_NAME}.amazonaws.com/{AWS_LOCATION}/"
+
+    MEDIA_BASE_URL = os.getenv("MEDIA_BASE_URL", MEDIA_URL)
+    STORAGES["default"] = {
+        "BACKEND": "storages.backends.s3boto3.S3Boto3Storage",
+        "OPTIONS": {
+            "bucket_name": AWS_STORAGE_BUCKET_NAME,
+            "region_name": AWS_S3_REGION_NAME,
+            "location": AWS_LOCATION,
+            "default_acl": AWS_DEFAULT_ACL,
+            "querystring_auth": AWS_QUERYSTRING_AUTH,
+        },
+    }
 # =================Static & Media Config================================
 # ==========================================================================================
 

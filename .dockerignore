@@ -3,6 +3,8 @@
 **/.classpath
 **/.dockerignore
 **/.env
+**/.env.*
+!.env.example
 **/.git
 **/.gitignore
 **/.project
@@ -15,12 +17,12 @@
 **/*.jfm
 **/bin
 **/charts
-**/docker-compose*
-**/compose*
-**/Dockerfile*
 **/node_modules
 **/npm-debug.log
 **/obj
+db.sqlite3
+media
+staticfiles
 **/secrets.dev.yaml
 **/values.dev.yaml
 LICENSE

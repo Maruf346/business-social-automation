@@ -12,6 +12,7 @@ When code changes, update the relevant files here in the same development pass. 
 - `MILESTONE_2_PLAN.md` - implementation plan for the remaining workflow and production work.
 - `TECH_DEBT_AND_RISKS.md` - known code, architecture, deployment, and product risks.
 - `DEVELOPMENT_GUIDE.md` - local setup, commands, endpoints, and integration notes.
+- `DEPLOYMENT_AWS_CICD.md` - AWS/Docker Hub deployment shape, required secrets, and EC2 runtime notes.
 
 ## Documentation Rule
 
