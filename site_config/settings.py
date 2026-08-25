@@ -110,7 +110,7 @@ CORS_ORIGIN_ALLOW_ALL = True
 
 SPECTACULAR_SETTINGS = {
     'TITLE': 'TattooHysteria [Ink-Flow] API',
-    'DESCRIPTION': 'API documentation for TattooHysteria [Ink-Flow] project',
+    'DESCRIPTION': 'API documentation for TattooHysteria [Ink-Flow] project - production',
     'VERSION': '1.0.0',
     'SECURITY': [{'BearerAuth': []}],
     'COMPONENTS': {
