@@ -1,6 +1,6 @@
 # Project Context
 
-Last reviewed: 2026-08-25
+Last reviewed: 2026-08-26
 
 ## Product Goal
 
@@ -29,6 +29,7 @@ This repository does not own the AI implementation itself. An AI engineer is bui
 - Database: SQLite by default for local direct `runserver`; Postgres is supported through `DATABASE_URL` or `POSTGRES_*` env vars and is used by Docker Compose.
 - Deployment: Docker image build, production compose, nginx reverse proxy, Redis service, and optional S3 media storage are now scaffolded.
 - External APIs: Meta WhatsApp Graph API, Microsoft Graph API, Telegram Bot API, external AI API.
+- vCita/inTandem integration: Phase 1 scaffold exists for account token storage, webhook capture, and Bearer-token API smoke checks.
 
 Important mismatch: the Milestone 2 note mentions FastAPI, LangChain/LangGraph, PostgreSQL, and AWS. The current repo is Django/DRF/Celery/SQLite. Prefer evolving this Django backend unless a rewrite is explicitly approved.
 
@@ -115,6 +116,28 @@ Key flows:
 - High-risk AI result sends waiting message to client and Telegram summary to the team.
 - Client outbound attempts are audited through `OutboundAction` records.
 
+### `vcita`
+
+vCita integration foundation.
+
+Key models:
+
+- `VcitaAccount`: admin-managed API token and API base URL for Bearer-token calls.
+- `VcitaWebhookEvent`: raw webhook event storage, including headers, payload, body, event/entity hints, external id, status, and processing error.
+
+Key code:
+
+- `VcitaAPIClient`: small Bearer-token client for vCita API calls.
+- `VcitaWebhook`: unauthenticated webhook receiver at `/api/v1/webhook/vcita/`.
+- `vcita_smoke_test`: management command that calls a simple vCita endpoint using the active account token.
+
+Current behavior:
+
+- vCita webhook GET returns a health response.
+- vCita webhook POST stores raw payloads safely and returns `EVENT_RECEIVED`.
+- Webhook payloads are not yet mapped into `Lead`, `Conversation`, `IntakeRequest`, bookings, or payment state.
+- The API token is stored in Django admin, not environment variables.
+
 ## Current Routes
 
 - `/` - basic backend health JSON.
@@ -122,6 +145,7 @@ Key flows:
 - `/api/v1/webhook/meta/` - WhatsApp/Meta webhook.
 - `/api/v1/webhook/outlook/` - Outlook webhook.
 - `/api/v1/webhook/telegram/` - basic Telegram webhook echo.
+- `/api/v1/webhook/vcita/` - vCita webhook receiver.
 - `/api/schema/` - OpenAPI schema.
 - `/api/docs/` - Swagger UI.
 - `/api/redoc/` - ReDoc UI.

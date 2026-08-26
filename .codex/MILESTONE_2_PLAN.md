@@ -1,6 +1,6 @@
 # Milestone 2 Plan
 
-Last reviewed: 2026-08-25
+Last reviewed: 2026-08-26
 
 ## Milestone 2 Goal
 
@@ -266,23 +266,49 @@ Deliverable:
 
 ## Phase 7 - Calendar and vCita
 
+Current product direction:
+
+- Use vCita as the booking/calendar system.
+- Google Calendar integration is not needed if vCita covers booking, availability, reschedule/cancel, and payment/deposit workflows.
+
 Google Calendar:
 
 - Store artist calendar identities.
 - Check availability before booking confirmation.
 - Prevent double booking.
 - Create/update calendar events after approval.
+- Deferred while vCita is the chosen calendar/booking path.
 
 vCita:
 
-- First produce or recover feasibility report.
-- Test reading booking requests.
-- Test reference image access.
-- Test creating/updating client profiles.
-- Test adding notes.
-- Test creating appointments.
-- Test payment/deposit status detection.
-- Document unsupported capabilities and safest alternatives.
+Phase 1 implemented on 2026-08-26:
+
+- Added `vcita` Django app.
+- Added `VcitaAccount` with API token and API base URL.
+- Added `/api/v1/webhook/vcita/`.
+- Added `VcitaWebhookEvent` to store raw webhook payloads.
+- Added `VcitaAPIClient` with Bearer-token requests.
+- Added admin action and `vcita_smoke_test` management command to test one simple API call.
+
+Phase 2 planned:
+
+- Map backend `Lead` to vCita client.
+- Store vCita client UID/ID on the backend side.
+- Search/fetch existing vCita clients before creating duplicates.
+- Decide where vCita client IDs live: likely `Lead` extension fields or a dedicated mapping model.
+
+Phase 3 planned:
+
+- Booking workflow from approved intake.
+- Store vCita appointment/booking ID.
+- Update Telegram when booking status changes.
+- Decide the Hoss/artist command or admin action that creates/updates vCita booking records.
+
+Phase 4 planned:
+
+- Payment/deposit sync if exposed by vCita.
+- Admin dashboard visibility for vCita sync state.
+- Document unsupported vCita capabilities and safest alternatives.
 
 Deliverable:
 
@@ -339,5 +365,5 @@ Still needed:
 8. Add outbound action audit logging. Done 2026-08-23.
 9. Add Postgres/pgvector learning retrieval.
 10. Add pricing and richer image tags.
-11. Add calendar and vCita.
+11. Add calendar and vCita. vCita Phase 1 started 2026-08-26.
 12. Harden deployment. Started 2026-08-25 with Docker Hub CI/CD, production compose, nginx, Postgres env support, Redis env support, and optional S3 media settings.

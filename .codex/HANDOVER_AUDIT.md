@@ -1,6 +1,6 @@
 # Handover Audit
 
-Last reviewed: 2026-08-22
+Last reviewed: 2026-08-26
 
 ## Summary
 
@@ -20,7 +20,7 @@ Status labels:
 | Backend foundation with source code | Partial | Django/DRF project exists with apps, models, routes, admin, settings, Docker files. Tests are empty and production config is incomplete. |
 | WhatsApp Business API connection and testing | Partial / Unknown | Webhook verification, HMAC validation, parser, account model, media download, and outbound send service exist. No local account data or webhook logs prove live testing. |
 | Outlook/Microsoft Graph connection and testing | Partial | Models, token service, Graph message fetch/reply, attachment handling, Celery pipeline, and webhook-to-orchestrator dispatch exist. Live testing still requires valid Graph credentials and webhook subscription data. |
-| vCita feasibility review and written documentation | Missing | No vCita code or feasibility report found. |
+| vCita feasibility review and written documentation | Partial | vCita Phase 1 scaffold now exists: account token storage, raw webhook capture, API client, admin/API smoke-test helper. Full feasibility still requires live token and webhook payload verification. |
 | AI extraction on sample or real client requests | Partial / External | Backend calls external AI endpoint. AI implementation belongs to separate AI repo. No tests or sample fixtures prove extraction behavior here. |
 | AI-generated structured summaries | Partial / External | Backend calls a configurable summary endpoint for Telegram review. Summary generation itself belongs to the separate AI service. |
 | One complete end-to-end demonstration | Partial / Not proven | WhatsApp path can theoretically do intake -> AI -> client or Telegram. Outlook path is disabled at webhook entry. Local DB has no proof records. |

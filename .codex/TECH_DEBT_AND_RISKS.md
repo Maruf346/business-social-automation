@@ -1,6 +1,6 @@
 # Technical Debt and Risks
 
-Last reviewed: 2026-08-25
+Last reviewed: 2026-08-26
 
 ## High Priority
 
@@ -253,22 +253,30 @@ Recommendation:
 - Use inline buttons and callback queries first.
 - Use Telegram Web Apps only if rich editing is truly needed.
 
-### vCita Unknowns
+### vCita Feasibility Still Needs Live Token and Payload Verification
 
-No vCita feasibility report exists in this repo.
+vCita Phase 1 scaffolding now exists: `VcitaAccount`, `VcitaWebhookEvent`, `/api/v1/webhook/vcita/`, `VcitaAPIClient`, admin token test action, and `vcita_smoke_test`.
 
 Risk:
 
-- Milestone 2 vCita implementation may depend on unsupported API features.
+- Full Milestone 2 vCita behavior may depend on unsupported API features or token access level.
+- Webhook payload shape is not yet verified against the client's live vCita account.
+- API write capabilities for client creation, notes, booking creation/update, and payment/deposit state still need confirmation.
+- The webhook receiver is intentionally permissive in Phase 1 and does not yet verify a vCita signature/shared secret.
 
 Recommendation:
 
-- Do feasibility spike before committing implementation details.
+- Add the client's vCita token in Django admin as `VcitaAccount`.
+- Run `vcita_smoke_test`.
+- Configure vCita webhook to `/api/v1/webhook/vcita/`.
+- Capture sample webhook payloads.
+- Implement Phase 2 mapping only after real payload and API access are confirmed.
 
 ## Security Risks
 
 - Secrets are env-driven but `.env` exists locally and must never be committed.
 - Webhook endpoints are unauthenticated by design, so signature/clientState validation matters.
+- vCita webhook verification/signature strategy is still unknown and must be confirmed before production reliance.
 - Telegram callbacks must verify Hoss for group approval actions and the assigned artist for private reply actions.
 - Internal pricing must never be sent to clients without human approval.
 - Media URLs should be reviewed before production; public dev tunnel URLs are not a long-term storage strategy.

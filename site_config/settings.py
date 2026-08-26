@@ -40,7 +40,7 @@ INSTALLED_APPS = [
     'rest_framework_simplejwt.token_blacklist', 'django_json_widget', 'django_celery_results',
 
     # custom app
-    'account', 'core.apps.CoreConfig', 'lead', 'intake',
+    'account', 'core.apps.CoreConfig', 'lead', 'intake', 'vcita.apps.VcitaConfig',
 ]
 
 if env_bool("USE_S3", False):

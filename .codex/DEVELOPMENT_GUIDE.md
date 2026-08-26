@@ -1,6 +1,6 @@
 # Development Guide
 
-Last reviewed: 2026-08-25
+Last reviewed: 2026-08-26
 
 ## Local Environment
 
@@ -96,6 +96,7 @@ Webhook paths:
 /api/v1/webhook/meta/
 /api/v1/webhook/outlook/
 /api/v1/webhook/telegram/
+/api/v1/webhook/vcita/
 ```
 
 ## Environment Variables
@@ -180,6 +181,49 @@ After model changes:
 ```powershell
 .\.venv\Scripts\python.exe manage.py makemigrations intake
 .\.venv\Scripts\python.exe manage.py migrate intake
+```
+
+## vCita App
+
+The `vcita` app is Phase 1 scaffolding for the vCita calendar/booking path.
+
+Admin setup:
+
+1. Open Django admin.
+2. Add a `VcitaAccount`.
+3. Set `api_token` to the vCita API token.
+4. Keep `api_base_url=https://api.vcita.biz` unless vCita provides another endpoint.
+5. Set `is_active=True`.
+
+Webhook URL:
+
+```text
+/api/v1/webhook/vcita/
+```
+
+Current behavior:
+
+- `GET /api/v1/webhook/vcita/` returns a health response.
+- `POST /api/v1/webhook/vcita/` stores the raw webhook payload in `VcitaWebhookEvent`.
+- No lead/client/booking/payment mapping happens yet.
+
+Smoke-test the API token after adding `VcitaAccount`:
+
+```powershell
+.\.venv\Scripts\python.exe manage.py vcita_smoke_test
+```
+
+Or inside production Docker:
+
+```bash
+docker compose -f docker-compose.prod.yml exec backend python manage.py vcita_smoke_test
+```
+
+After vCita model changes:
+
+```powershell
+.\.venv\Scripts\python.exe manage.py makemigrations vcita
+.\.venv\Scripts\python.exe manage.py migrate vcita
 ```
 
 ## External AI Service
