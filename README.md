@@ -18,7 +18,7 @@ An AI-powered CRM platform that centralizes WhatsApp and Outlook communications 
 
 # 📖 Table of Contents
 
-- Overview
+- Overview 
 - Key Features
 - System Architecture
 - Technology Stack
