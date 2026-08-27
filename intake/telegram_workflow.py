@@ -140,6 +140,9 @@ class TelegramWorkflowService:
         if command == "/schedule":
             return self._handle_schedule_command(message, artist, raw_update)
 
+        if command == "/logs":
+            return self._handle_logs_command(message, artist)
+
         if command == "/reply":
             return self._handle_reply_command(message, artist, raw_update)
 
@@ -291,6 +294,34 @@ class TelegramWorkflowService:
             appointment_date=parts[2],
             appointment_time=parts[3],
         )
+
+    def _handle_logs_command(
+        self,
+        message: dict[str, Any],
+        artist: ArtistProfile,
+    ) -> dict[str, Any]:
+        chat_id = message.get("chat", {}).get("id")
+        if not artist.can_approve:
+            self.telegram.send_message(chat_id=chat_id, text="Only Hoss can view request logs.")
+            return {"ok": False, "reason": "unauthorized"}
+
+        parsed = self._parse_logs_command((message.get("text") or "").strip())
+        if parsed is None:
+            self.telegram.send_message(chat_id=chat_id, text=self._logs_command_help())
+            return {"ok": False, "reason": "invalid_logs_command"}
+
+        intake_id, limit = parsed
+        decisions = HumanDecision.objects.select_related("intake", "actor", "assigned_artist")
+        if intake_id is not None:
+            decisions = decisions.filter(intake_id=intake_id)
+            if not IntakeRequest.objects.filter(pk=intake_id).exists():
+                self.telegram.send_message(chat_id=chat_id, text=f"I could not find Request #{intake_id}.")
+                return {"ok": False, "reason": "unknown_intake"}
+
+        decisions = decisions.order_by("-created_at")[:limit]
+        text = self._format_logs_response(list(decisions), intake_id, limit)
+        self.telegram.send_message(chat_id=chat_id, text=text)
+        return {"ok": True, "action": "logs", "intake_id": intake_id, "limit": limit}
 
     @transaction.atomic
     def _approve_ai_reply(
@@ -855,6 +886,72 @@ class TelegramWorkflowService:
             "Use /schedule REQUEST_ID YYYY-MM-DD HH:MM.\n"
             "Example: /schedule 1 2026-09-04 14:30"
         )
+
+    @staticmethod
+    def _logs_command_help() -> str:
+        return (
+            "Use /logs, /logs REQUEST_ID, /logs --20, or /logs REQUEST_ID --20.\n"
+            "Maximum is 30."
+        )
+
+    @staticmethod
+    def _parse_logs_command(text: str) -> tuple[int | None, int] | None:
+        parts = text.split()
+        if not parts or parts[0].split("@", 1)[0].lower() != "/logs":
+            return None
+
+        intake_id: int | None = None
+        limit = 10
+        for part in parts[1:]:
+            if part.startswith("--"):
+                raw_limit = part[2:]
+                if not raw_limit.isdigit():
+                    return None
+                limit = int(raw_limit)
+                if limit < 1 or limit > 30:
+                    return None
+                continue
+            if part.isdigit() and intake_id is None:
+                intake_id = int(part)
+                continue
+            return None
+        return intake_id, limit
+
+    @staticmethod
+    def _format_logs_response(decisions: list[HumanDecision], intake_id: int | None, limit: int) -> str:
+        if intake_id is not None:
+            title = f"Latest {limit} logs for Request #{intake_id}"
+        else:
+            title = f"Latest {limit} request logs"
+
+        if not decisions:
+            return f"{title}\n\nNo logs found."
+
+        lines = [f"<b>{escape(title)}</b>"]
+        for decision in decisions:
+            timestamp = timezone.localtime(decision.created_at).strftime("%Y-%m-%d %H:%M")
+            actor = decision.actor.name if decision.actor else "Unknown"
+            action = decision.get_action_display()
+            request_label = f"Request #{decision.intake_id}"
+            detail = TelegramWorkflowService._human_decision_detail(decision)
+            line = f"{escape(timestamp)} - {escape(request_label)} - {escape(actor)}: {escape(action)}"
+            if detail:
+                line = f"{line} - {escape(detail)}"
+            lines.append(line)
+        return "\n".join(lines)
+
+    @staticmethod
+    def _human_decision_detail(decision: HumanDecision) -> str:
+        if decision.action == HumanDecisionAction.ASSIGN_ARTIST and decision.assigned_artist:
+            return f"assigned {decision.assigned_artist.name}"
+        if decision.action == HumanDecisionAction.EDIT_PRICE:
+            return decision.note.replace("\n", " | ")
+        if decision.action == HumanDecisionAction.SCHEDULE:
+            return decision.note
+        if decision.action in (HumanDecisionAction.EDIT_REPLY, HumanDecisionAction.ARTIST_REPLY):
+            note = decision.note.strip().replace("\n", " ")
+            return note[:120] + ("..." if len(note) > 120 else "")
+        return decision.note.strip().replace("\n", " ")[:120]
 
     @staticmethod
     def _format_schedule_group_confirmation(result: VcitaScheduleResult) -> str:

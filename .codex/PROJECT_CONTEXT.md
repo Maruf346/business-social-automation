@@ -228,6 +228,7 @@ Artist assignment rules:
 - Edit Reply keeps the intake waiting for human action and tells Hoss to send the final client message with `/reply REQUEST_ID message text` in the shared group.
 - Hoss can choose Edit Price and then update internal approved pricing with `/price REQUEST_ID price | optional note`.
 - Hoss can schedule an assigned intake with the Schedule button when AI provided date/time, or with `/schedule REQUEST_ID YYYY-MM-DD HH:MM`.
+- Hoss can view human decision history with `/logs`, `/logs REQUEST_ID`, `/logs --20`, or `/logs REQUEST_ID --20`; default limit is 10 and max is 30.
 - Schedule commands use the vCita account timezone, defaulting to `Europe/Amsterdam`; date/time are stored separately in the DB exactly as AI/Hoss provided them.
 - If Hoss tries to schedule before assigning an artist, the bot replies: `Please assign an artist first, then schedule this request.`
 - Price updates are internal only and do not send anything to the client.

@@ -163,6 +163,7 @@ Implemented on 2026-08-22:
 - Added Hoss-only Edit Price button and `/price REQUEST_ID price | optional note` command.
 - Added AI-proposed `date`/`time` persistence and Hoss-only scheduling through a conditional Schedule button or `/schedule REQUEST_ID YYYY-MM-DD HH:MM`.
 - Added vCita staff UID mapping on artists and scheduling/payment state storage on intakes.
+- Added Hoss-only `/logs` command for recent `HumanDecision` history with optional request ID and row limit.
 
 Still needs live verification:
 

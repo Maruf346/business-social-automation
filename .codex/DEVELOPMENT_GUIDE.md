@@ -286,6 +286,8 @@ Telegram:
 - Edit Price tells Hoss to send `/price REQUEST_ID price | optional note`; this updates internal pricing only.
 - Manual scheduling format is `/schedule REQUEST_ID YYYY-MM-DD HH:MM`.
 - If Hoss tries to schedule before assignment, the bot tells him to assign an artist first.
+- Hoss-only logs command supports `/logs`, `/logs REQUEST_ID`, `/logs --20`, and `/logs REQUEST_ID --20`.
+- `/logs` reads `HumanDecision` records, defaults to 10 rows, and rejects limits above 30.
 - Older cards with the previous `manual` callback action are treated as Edit Reply for backward compatibility.
 - Artist private replies should be mapped by `reply_to_message.message_id` to a stored `TelegramMessageLink`.
 - Assigned artist fallback reply format should be `/reply REQUEST_ID message text`.
