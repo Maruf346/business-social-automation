@@ -24,6 +24,8 @@ class IntakeStateService:
         "suggested_price",
         "pricing_reasoning",
         "draft_reply",
+        "date",
+        "time",
     )
 
     @classmethod
@@ -89,6 +91,13 @@ class IntakeStateService:
                 "price_approved_by": intake.price_approved_by.name if intake.price_approved_by else "",
                 "price_approved_at": intake.price_approved_at.isoformat() if intake.price_approved_at else "",
                 "latest_draft_reply": intake.latest_draft_reply,
+                "appointment_date": intake.appointment_date,
+                "appointment_time": intake.appointment_time,
+                "scheduled_date": intake.scheduled_date,
+                "scheduled_time": intake.scheduled_time,
+                "schedule_status": cls._choice_value(intake.schedule_status),
+                "vcita_booking_uid": intake.vcita_booking_uid,
+                "payment_status": cls._choice_value(intake.payment_status),
             },
             "latest_ai_analysis": cls._analysis_state(latest_analysis),
         }
@@ -160,6 +169,8 @@ class IntakeStateService:
             suggested_price=normalized["suggested_price"],
             pricing_reasoning=normalized["pricing_reasoning"],
             draft_reply=normalized["draft_reply"],
+            appointment_date=normalized["date"],
+            appointment_time=normalized["time"],
             raw_response=response if isinstance(response, dict) else {},
         )
 
@@ -182,6 +193,8 @@ class IntakeStateService:
         intake.latest_summary = normalized["summary"]
         intake.ai_suggested_price = normalized["suggested_price"]
         intake.latest_draft_reply = normalized["draft_reply"]
+        intake.appointment_date = normalized["date"]
+        intake.appointment_time = normalized["time"]
         intake.latest_raw_ai_response = response if isinstance(response, dict) else {}
         intake.status = status
         intake.save(
@@ -199,6 +212,8 @@ class IntakeStateService:
                 "latest_summary",
                 "ai_suggested_price",
                 "latest_draft_reply",
+                "appointment_date",
+                "appointment_time",
                 "latest_raw_ai_response",
                 "status",
                 "updated_at",
@@ -242,6 +257,8 @@ class IntakeStateService:
             ),
             "pricing_reasoning": cls._as_string(data.get("pricing_reasoning") or data.get("price_reasoning")),
             "draft_reply": cls._as_string(data.get("draft_reply")),
+            "date": cls._as_date_string(data.get("date") or data.get("appointment_date")),
+            "time": cls._as_time_string(data.get("time") or data.get("appointment_time")),
         }
 
     @staticmethod
@@ -257,6 +274,8 @@ class IntakeStateService:
             "suggested_price": analysis.suggested_price,
             "pricing_reasoning": analysis.pricing_reasoning,
             "draft_reply": analysis.draft_reply,
+            "date": analysis.appointment_date,
+            "time": analysis.appointment_time,
             "risk_level": IntakeStateService._choice_value(analysis.risk_level),
             "created_at": analysis.created_at.isoformat(),
         }
@@ -276,6 +295,20 @@ class IntakeStateService:
         if isinstance(value, list):
             return value
         return [value]
+
+    @staticmethod
+    def _as_date_string(value: Any) -> str:
+        value = IntakeStateService._as_string(value).strip()
+        if len(value) == 10 and value[4] == "-" and value[7] == "-":
+            return value
+        return ""
+
+    @staticmethod
+    def _as_time_string(value: Any) -> str:
+        value = IntakeStateService._as_string(value).strip()
+        if len(value) == 5 and value[2] == ":":
+            return value
+        return ""
 
     @staticmethod
     def _normalize_choice(value: Any, allowed: set[str], default: str) -> str:

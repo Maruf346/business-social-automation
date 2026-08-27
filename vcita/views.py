@@ -9,6 +9,9 @@ from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from core.services.telegram_bot_service import TelegramBotService
+from intake.models import IntakeRequest, PaymentStatus, ScheduleStatus
+
 from .models import VcitaAccount, VcitaWebhookEvent
 
 logger = logging.getLogger(__name__)
@@ -32,6 +35,10 @@ class VcitaWebhook(APIView):
         raw_body = request.body.decode("utf-8", errors="ignore")
         payload, parse_error = self._parse_payload(raw_body)
         account = VcitaAccount.objects.filter(is_active=True).first()
+        if account and account.webhook_secret:
+            provided_secret = request.query_params.get("secret") or request.headers.get("X-Vcita-Webhook-Secret", "")
+            if provided_secret != account.webhook_secret:
+                return Response({"detail": "Invalid webhook secret."}, status=status.HTTP_403_FORBIDDEN)
 
         event = VcitaWebhookEvent.objects.create(
             account=account,
@@ -47,6 +54,7 @@ class VcitaWebhook(APIView):
             processing_error=parse_error,
         )
         logger.info("vCita webhook stored id=%s event_type=%s entity=%s", event.pk, event.event_type, event.entity)
+        self._process_event(event)
 
         return Response(
             {
@@ -81,6 +89,93 @@ class VcitaWebhook(APIView):
                 if value is not None:
                     return str(value)
         return ""
+
+    @classmethod
+    def _process_event(cls, event: VcitaWebhookEvent) -> None:
+        event_name = f"{event.entity}/{event.event_type}".strip("/")
+        normalized_event = event_name.lower()
+        booking_uid = cls._find_nested_value(
+            event.payload,
+            {
+                "booking_id",
+                "booking_uid",
+                "appointment_id",
+                "appointment_uid",
+                "meeting_id",
+                "meeting_uid",
+            },
+        )
+        if not booking_uid and event.entity.lower() in {"booking", "appointment", "meeting"}:
+            booking_uid = event.external_id
+        if not booking_uid:
+            return
+
+        intakes = IntakeRequest.objects.select_related("assigned_artist").filter(vcita_booking_uid=booking_uid)
+        if not intakes.exists():
+            return
+
+        updated = False
+        for intake in intakes:
+            message = ""
+            update_fields = ["updated_at"]
+            if "paid" in normalized_event:
+                intake.payment_status = PaymentStatus.PAID
+                intake.payment_reference = event.external_id or booking_uid
+                update_fields.extend(["payment_status", "payment_reference"])
+                message = f"Request #{intake.pk}: vCita payment marked paid."
+            elif "refunded" in normalized_event:
+                intake.payment_status = PaymentStatus.REFUNDED
+                intake.payment_reference = event.external_id or booking_uid
+                update_fields.extend(["payment_status", "payment_reference"])
+                message = f"Request #{intake.pk}: vCita payment marked refunded."
+            elif "failed" in normalized_event:
+                intake.payment_status = PaymentStatus.FAILED
+                intake.payment_reference = event.external_id or booking_uid
+                update_fields.extend(["payment_status", "payment_reference"])
+                message = f"Request #{intake.pk}: vCita payment marked failed."
+            elif "cancelled" in normalized_event or "canceled" in normalized_event:
+                intake.schedule_status = ScheduleStatus.CANCELLED
+                update_fields.append("schedule_status")
+                message = f"Request #{intake.pk}: vCita booking was cancelled."
+            elif "rescheduled" in normalized_event:
+                intake.schedule_status = ScheduleStatus.RESCHEDULED
+                update_fields.append("schedule_status")
+                message = f"Request #{intake.pk}: vCita booking was rescheduled."
+
+            if not message:
+                continue
+
+            intake.save(update_fields=update_fields)
+            updated = True
+            cls._notify_telegram(message)
+
+        if updated:
+            event.status = "processed"
+            event.save(update_fields=["status", "updated_at"])
+
+    @staticmethod
+    def _find_nested_value(value: Any, keys: set[str]) -> str:
+        if isinstance(value, dict):
+            for key, item in value.items():
+                if key in keys and item:
+                    return str(item)
+            for item in value.values():
+                nested = VcitaWebhook._find_nested_value(item, keys)
+                if nested:
+                    return nested
+        if isinstance(value, list):
+            for item in value:
+                nested = VcitaWebhook._find_nested_value(item, keys)
+                if nested:
+                    return nested
+        return ""
+
+    @staticmethod
+    def _notify_telegram(message: str) -> None:
+        try:
+            TelegramBotService().send_message(text=message)
+        except Exception:
+            logger.exception("Failed to notify Telegram for vCita webhook event.")
 
     @classmethod
     def _extract_external_id(cls, payload: dict) -> str:

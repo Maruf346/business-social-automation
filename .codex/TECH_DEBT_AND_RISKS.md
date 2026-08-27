@@ -255,22 +255,24 @@ Recommendation:
 
 ### vCita Feasibility Still Needs Live Token and Payload Verification
 
-vCita Phase 1 scaffolding now exists: `VcitaAccount`, `VcitaWebhookEvent`, `/api/v1/webhook/vcita/`, `VcitaAPIClient`, admin token test action, and `vcita_smoke_test`.
+vCita scaffolding and initial scheduling now exist: `VcitaAccount`, `VcitaWebhookEvent`, `/api/v1/webhook/vcita/`, `VcitaAPIClient`, Admin panel token/userinfo/staff/service actions, `vcita_smoke_test`, and Hoss-only Telegram scheduling.
 
 Risk:
 
 - Full Milestone 2 vCita behavior may depend on unsupported API features or token access level.
 - Webhook payload shape is not yet verified against the client's live vCita account.
-- API write capabilities for client creation, notes, booking creation/update, and payment/deposit state still need confirmation.
-- The webhook receiver is intentionally permissive in Phase 1 and does not yet verify a vCita signature/shared secret.
+- API write capabilities for client creation, booking creation/update, notes, and exact accepted payload field names still need confirmation against the live client token.
+- The webhook receiver can enforce an optional shared secret through `?secret=...` or `X-Vcita-Webhook-Secret`, but vCita's own signature strategy is still unknown.
+- Payment webhook processing is conservative and only updates intakes when a payload contains a booking/appointment/meeting ID matching `IntakeRequest.vcita_booking_uid`.
 
 Recommendation:
 
-- Add the client's vCita token in Django admin as `VcitaAccount`.
-- Run `vcita_smoke_test`.
-- Configure vCita webhook to `/api/v1/webhook/vcita/`.
-- Capture sample webhook payloads.
-- Implement Phase 2 mapping only after real payload and API access are confirmed.
+- Add the client's vCita token in the Admin panel as `VcitaAccount`.
+- Run `Sync vCita business info from token`, `Show active vCita staff IDs`, and `Show vCita service IDs`.
+- Save vCita staff UID on each `ArtistProfile` and default service UID on `VcitaAccount`.
+- Test `vcita_smoke_test` and one controlled `/schedule REQUEST_ID YYYY-MM-DD HH:MM` against the live token.
+- Configure vCita webhook to `/api/v1/webhook/vcita/`, preferably with the shared secret query parameter.
+- Inspect real webhook payloads in `VcitaWebhookEvent` and refine payment/status extraction if needed.
 
 ## Security Risks
 

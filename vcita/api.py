@@ -33,8 +33,47 @@ class VcitaAPIClient:
     def list_webhooks(self, params: dict | None = None) -> dict:
         return self.get("/platform/v1/webhooks", params=params)
 
+    def userinfo(self) -> dict:
+        return self.get("/oauth/userinfo")
+
+    def list_staff(self, business_uid: str, status: str = "active") -> dict:
+        return self.get(f"/platform/v1/businesses/{business_uid}/staffs", params={"status": status})
+
+    def list_services(self, business_uid: str) -> dict:
+        return self.get("/platform/v1/services", params={"business_id": business_uid})
+
+    def search_clients(self, query: str) -> dict:
+        return self.get("/v2/search", params={"query": query, "entity": "client"})
+
+    def create_client(self, payload: dict[str, Any]) -> dict:
+        return self.post("/platform/v1/clients", json=payload)
+
+    def get_availability_slots(self, params: dict[str, Any]) -> dict:
+        return self.get("/v3/scheduling/availability_slots", params=params)
+
+    def create_booking(self, payload: dict[str, Any]) -> dict:
+        return self.post("/business/scheduling/v1/bookings", json=payload)
+
+    def update_booking(self, booking_uid: str, payload: dict[str, Any]) -> dict:
+        return self.put(f"/business/scheduling/v1/bookings/{booking_uid}", json=payload)
+
+    def subscribe_webhook(self, event: str, target_url: str) -> dict:
+        return self.post("/platform/v1/webhook/subscribe", json={"event": event, "target_url": target_url})
+
+    def unsubscribe_webhook(self, target_url: str, event: str = "") -> dict:
+        payload = {"target_url": target_url}
+        if event:
+            payload["event"] = event
+        return self.post("/platform/v1/webhook/unsubscribe", json=payload)
+
     def get(self, path: str, params: dict | None = None) -> dict:
         return self.request("GET", path, params=params)
+
+    def post(self, path: str, **kwargs) -> dict:
+        return self.request("POST", path, **kwargs)
+
+    def put(self, path: str, **kwargs) -> dict:
+        return self.request("PUT", path, **kwargs)
 
     def request(self, method: str, path: str, **kwargs) -> dict:
         url = urljoin(self.account.api_base_url.rstrip("/") + "/", path.lstrip("/"))

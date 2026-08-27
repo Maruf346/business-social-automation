@@ -10,12 +10,13 @@ class ArtistProfileAdmin(admin.ModelAdmin):
         "name",
         "telegram_user_id",
         "telegram_chat_id",
+        "vcita_staff_uid",
         "can_approve",
         "is_active",
         "sort_order",
     )
     list_filter = ("can_approve", "is_active")
-    search_fields = ("name", "telegram_user_id", "telegram_chat_id")
+    search_fields = ("name", "telegram_user_id", "telegram_chat_id", "vcita_staff_uid")
     ordering = ("sort_order", "name")
 
 
@@ -30,11 +31,25 @@ class IntakeRequestAdmin(admin.ModelAdmin):
         "suggested_artist",
         "approved_price",
         "ai_suggested_price",
+        "appointment_date",
+        "appointment_time",
+        "schedule_status",
+        "payment_status",
         "confidence_level",
         "is_active",
         "updated_at",
     )
-    list_filter = ("status", "risk_level", "confidence_level", "assigned_artist", "source", "is_active", "created_at")
+    list_filter = (
+        "status",
+        "risk_level",
+        "confidence_level",
+        "assigned_artist",
+        "source",
+        "schedule_status",
+        "payment_status",
+        "is_active",
+        "created_at",
+    )
     list_editable = ("status", "risk_level", "approved_price", "ai_suggested_price", "is_active")
     search_fields = (
         "lead__name",
@@ -45,6 +60,7 @@ class IntakeRequestAdmin(admin.ModelAdmin):
         "latest_summary",
         "approved_price",
         "ai_suggested_price",
+        "vcita_booking_uid",
     )
     readonly_fields = ("latest_raw_ai_response", "created_at", "updated_at")
     raw_id_fields = (
@@ -118,6 +134,22 @@ class IntakeRequestAdmin(admin.ModelAdmin):
             },
         ),
         (
+            "Scheduling And Payment",
+            {
+                "fields": (
+                    "appointment_date",
+                    "appointment_time",
+                    "scheduled_date",
+                    "scheduled_time",
+                    "schedule_status",
+                    "schedule_error",
+                    "vcita_booking_uid",
+                    "payment_status",
+                    "payment_reference",
+                )
+            },
+        ),
+        (
             "Debug",
             {
                 "classes": ("collapse",),
@@ -143,6 +175,8 @@ class AIAnalysisAdmin(admin.ModelAdmin):
         "risk_level",
         "suggested_artist",
         "suggested_price",
+        "appointment_date",
+        "appointment_time",
         "confidence_level",
         "created_at",
     )
@@ -179,6 +213,8 @@ class AIAnalysisAdmin(admin.ModelAdmin):
                     "suggested_price",
                     "pricing_reasoning",
                     "draft_reply",
+                    "appointment_date",
+                    "appointment_time",
                 )
             },
         ),

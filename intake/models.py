@@ -37,6 +37,7 @@ class HumanDecisionAction(models.TextChoices):
     ASSIGN_ARTIST = "assign_artist", "Assign Artist"
     EDIT_REPLY = "edit_reply", "Edit Reply"
     EDIT_PRICE = "edit_price", "Edit Price"
+    SCHEDULE = "schedule", "Schedule"
     ARTIST_REPLY = "artist_reply", "Artist Reply"
 
 
@@ -52,6 +53,7 @@ class OutboundActionType(models.TextChoices):
     WAITING_MESSAGE = "waiting_message", "Waiting Message"
     HOSS_APPROVED_REPLY = "hoss_approved_reply", "Hoss Approved Reply"
     HOSS_EDITED_REPLY = "hoss_edited_reply", "Hoss Edited Reply"
+    SCHEDULE_NOTIFICATION = "schedule_notification", "Schedule Notification"
     ARTIST_REPLY = "artist_reply", "Artist Reply"
 
 
@@ -61,10 +63,29 @@ class OutboundActionStatus(models.TextChoices):
     FAILED = "failed", "Failed"
 
 
+class ScheduleStatus(models.TextChoices):
+    NOT_SCHEDULED = "not_scheduled", "Not Scheduled"
+    SCHEDULED = "scheduled", "Scheduled"
+    RESCHEDULED = "rescheduled", "Rescheduled"
+    CANCELLED = "cancelled", "Cancelled"
+    FAILED = "failed", "Failed"
+
+
+class PaymentStatus(models.TextChoices):
+    UNKNOWN = "unknown", "Unknown"
+    UNPAID = "unpaid", "Unpaid"
+    PENDING = "pending", "Pending"
+    PAID = "paid", "Paid"
+    FAILED = "failed", "Failed"
+    REFUNDED = "refunded", "Refunded"
+    CANCELLED = "cancelled", "Cancelled"
+
+
 class ArtistProfile(models.Model):
     name = models.CharField(max_length=100, unique=True)
     telegram_user_id = models.BigIntegerField(blank=True, null=True, unique=True)
     telegram_chat_id = models.BigIntegerField(blank=True, null=True)
+    vcita_staff_uid = models.CharField(max_length=255, blank=True, default="")
     can_approve = models.BooleanField(default=False, db_index=True)
     is_active = models.BooleanField(default=True, db_index=True)
     specialties = models.JSONField(default=list, blank=True)
@@ -172,6 +193,26 @@ class IntakeRequest(models.Model):
     latest_draft_reply = models.TextField(blank=True, default="")
     latest_raw_ai_response = models.JSONField(default=dict, blank=True)
 
+    appointment_date = models.CharField(max_length=10, blank=True, default="")
+    appointment_time = models.CharField(max_length=5, blank=True, default="")
+    scheduled_date = models.CharField(max_length=10, blank=True, default="")
+    scheduled_time = models.CharField(max_length=5, blank=True, default="")
+    vcita_booking_uid = models.CharField(max_length=255, blank=True, default="", db_index=True)
+    schedule_status = models.CharField(
+        max_length=30,
+        choices=ScheduleStatus.choices,
+        default=ScheduleStatus.NOT_SCHEDULED,
+        db_index=True,
+    )
+    schedule_error = models.TextField(blank=True, default="")
+    payment_status = models.CharField(
+        max_length=30,
+        choices=PaymentStatus.choices,
+        default=PaymentStatus.UNKNOWN,
+        db_index=True,
+    )
+    payment_reference = models.CharField(max_length=255, blank=True, default="")
+
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -184,6 +225,8 @@ class IntakeRequest(models.Model):
             models.Index(fields=["status"]),
             models.Index(fields=["assigned_artist", "is_active"]),
             models.Index(fields=["source"]),
+            models.Index(fields=["schedule_status"]),
+            models.Index(fields=["payment_status"]),
         ]
 
     def __str__(self):
@@ -227,6 +270,8 @@ class AIAnalysis(models.Model):
     suggested_price = models.CharField(max_length=255, blank=True, default="")
     pricing_reasoning = models.TextField(blank=True, default="")
     draft_reply = models.TextField(blank=True, default="")
+    appointment_date = models.CharField(max_length=10, blank=True, default="")
+    appointment_time = models.CharField(max_length=5, blank=True, default="")
     raw_response = models.JSONField(default=dict, blank=True)
 
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)

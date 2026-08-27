@@ -21,6 +21,7 @@ from intake.models import (
 )
 from lead.choices import SEND_BY
 from intake.outbound import ClientOutboundService
+from vcita.scheduling import VcitaScheduleResult, VcitaSchedulingError, VcitaSchedulingService
 
 logger = logging.getLogger(__name__)
 
@@ -107,6 +108,8 @@ class TelegramWorkflowService:
             return self._mark_edit_reply(intake, actor, callback_id, chat_id, message_id, raw_update)
         if action == "price":
             return self._mark_edit_price(intake, actor, callback_id, chat_id, message_id, raw_update)
+        if action == "schedule":
+            return self._schedule_intake(intake, actor, callback_id, chat_id, message_id, raw_update)
         if action == "assign":
             artist = ArtistProfile.objects.get(pk=parsed["artist_id"], is_active=True)
             return self._assign_artist(intake, actor, artist, callback_id, chat_id, message_id, raw_update)
@@ -133,6 +136,9 @@ class TelegramWorkflowService:
 
         if command == "/price":
             return self._handle_price_command(message, artist, raw_update)
+
+        if command == "/schedule":
+            return self._handle_schedule_command(message, artist, raw_update)
 
         if command == "/reply":
             return self._handle_reply_command(message, artist, raw_update)
@@ -249,6 +255,42 @@ class TelegramWorkflowService:
             return {"ok": False, "reason": "missing_price"}
 
         return self._update_price(intake, artist, price, note, message, raw_update)
+
+    def _handle_schedule_command(
+        self,
+        message: dict[str, Any],
+        artist: ArtistProfile,
+        raw_update: dict[str, Any],
+    ) -> dict[str, Any]:
+        chat_id = message.get("chat", {}).get("id")
+        if not artist.can_approve:
+            self.telegram.send_message(chat_id=chat_id, text="Only Hoss can schedule requests.")
+            return {"ok": False, "reason": "unauthorized"}
+
+        text = (message.get("text") or "").strip()
+        parts = text.split(" ", 3)
+        if len(parts) < 4 or not parts[1].isdigit():
+            self.telegram.send_message(chat_id=chat_id, text=self._schedule_command_help())
+            return {"ok": False, "reason": "invalid_schedule_command"}
+
+        intake = IntakeRequest.objects.select_related("lead", "assigned_artist").filter(
+            pk=int(parts[1]),
+            is_active=True,
+        ).first()
+        if not intake:
+            self.telegram.send_message(chat_id=chat_id, text="I could not find an active request with that ID.")
+            return {"ok": False, "reason": "unknown_intake"}
+
+        return self._schedule_intake(
+            intake=intake,
+            actor=artist,
+            callback_id=None,
+            chat_id=chat_id,
+            message_id=message.get("message_id"),
+            raw_update=raw_update,
+            appointment_date=parts[2],
+            appointment_time=parts[3],
+        )
 
     @transaction.atomic
     def _approve_ai_reply(
@@ -453,6 +495,75 @@ class TelegramWorkflowService:
         self.telegram.send_message(chat_id=message.get("chat", {}).get("id"), text=confirmation)
         return {"ok": True, "action": "price_updated", "intake_id": intake.pk}
 
+    def _schedule_intake(
+        self,
+        intake: IntakeRequest,
+        actor: ArtistProfile,
+        callback_id: str | None,
+        chat_id: int | None,
+        message_id: int | None,
+        raw_update: dict[str, Any],
+        appointment_date: str | None = None,
+        appointment_time: str | None = None,
+    ) -> dict[str, Any]:
+        try:
+            result = VcitaSchedulingService().schedule_intake(
+                intake=intake,
+                appointment_date=appointment_date,
+                appointment_time=appointment_time,
+            )
+        except VcitaSchedulingError as exc:
+            if callback_id:
+                self.telegram.answer_callback_query(callback_id, "Could not schedule request.")
+            self.telegram.send_message(
+                chat_id=chat_id,
+                text=f"Request #{intake.pk}: could not schedule in vCita.\nReason: {escape(str(exc))}",
+            )
+            return {"ok": False, "reason": "schedule_failed", "intake_id": intake.pk}
+
+        HumanDecision.objects.create(
+            intake=intake,
+            actor=actor,
+            action=HumanDecisionAction.SCHEDULE,
+            note=(
+                f"Scheduled for {result.requested_date} {result.requested_time}. "
+                f"vCita booking: {result.booking_uid}"
+            ),
+            telegram_chat_id=chat_id,
+            telegram_message_id=message_id,
+            telegram_callback_id=callback_id or "",
+            raw_update=raw_update,
+        )
+
+        if callback_id:
+            self.telegram.answer_callback_query(callback_id, "Request scheduled.")
+        self.telegram.send_message(chat_id=chat_id, text=self._format_schedule_group_confirmation(result))
+
+        client_notice = self._format_client_schedule_notice(result)
+        client_sent = self._send_client_reply_or_notify(
+            intake=result.intake,
+            text=client_notice,
+            chat_id=chat_id,
+            action_type=OutboundActionType.SCHEDULE_NOTIFICATION,
+            actor=actor,
+            send_by=SEND_BY.AGENT,
+        )
+        if result.intake.assigned_artist and result.intake.assigned_artist.telegram_chat_id:
+            self.send_artist_update(
+                intake=result.intake,
+                text=(
+                    f"This request has been {'rescheduled' if result.was_reschedule else 'scheduled'} "
+                    f"for {result.requested_date} at {result.requested_time}."
+                ),
+            )
+        return {
+            "ok": True,
+            "action": "schedule",
+            "intake_id": intake.pk,
+            "booking_uid": result.booking_uid,
+            "client_notified": client_sent,
+        }
+
     @transaction.atomic
     def _send_hoss_group_reply(
         self,
@@ -620,6 +731,16 @@ class TelegramWorkflowService:
         if row:
             keyboard.append(row)
 
+        if intake.appointment_date and intake.appointment_time:
+            keyboard.append(
+                [
+                    {
+                        "text": "Schedule",
+                        "callback_data": f"{self.CALLBACK_PREFIX}:schedule:{intake.pk}",
+                    }
+                ]
+            )
+
         return {"inline_keyboard": keyboard}
 
     def _format_review_text(self, intake: IntakeRequest) -> str:
@@ -630,6 +751,14 @@ class TelegramWorkflowService:
             price_lines.append(f"AI suggested price: {escape(intake.ai_suggested_price)}")
         if intake.price_note:
             price_lines.append(f"Price note: {escape(intake.price_note)}")
+        if intake.appointment_date and intake.appointment_time:
+            price_lines.append(f"Suggested schedule: {escape(intake.appointment_date)} at {escape(intake.appointment_time)}")
+        if intake.scheduled_date and intake.scheduled_time:
+            price_lines.append(
+                f"Scheduled: {escape(intake.scheduled_date)} at {escape(intake.scheduled_time)}"
+            )
+        if intake.payment_status:
+            price_lines.append(f"Payment status: {escape(intake.get_payment_status_display())}")
 
         summary_section = ""
         if intake.latest_summary:
@@ -671,6 +800,10 @@ class TelegramWorkflowService:
             detail_lines.append(f"Size: {escape(intake.size_estimate_cm or 'None')}")
         if intake.color_preference:
             detail_lines.append(f"Color: {escape(intake.color_preference or 'None')}")
+        if intake.scheduled_date and intake.scheduled_time:
+            detail_lines.append(f"Scheduled: {escape(intake.scheduled_date)} at {escape(intake.scheduled_time)}")
+        elif intake.appointment_date and intake.appointment_time:
+            detail_lines.append(f"Suggested schedule: {escape(intake.appointment_date)} at {escape(intake.appointment_time)}")
 
         summary_section = ""
         if intake.latest_summary:
@@ -715,6 +848,32 @@ class TelegramWorkflowService:
     def _parse_price_text(text: str) -> tuple[str, str]:
         price, separator, note = text.partition("|")
         return price.strip(), note.strip() if separator else ""
+
+    @staticmethod
+    def _schedule_command_help() -> str:
+        return (
+            "Use /schedule REQUEST_ID YYYY-MM-DD HH:MM.\n"
+            "Example: /schedule 1 2026-09-04 14:30"
+        )
+
+    @staticmethod
+    def _format_schedule_group_confirmation(result: VcitaScheduleResult) -> str:
+        action = "rescheduled" if result.was_reschedule else "scheduled"
+        return (
+            f"Request #{result.intake.pk} {action} in vCita.\n"
+            f"When: {escape(result.requested_date)} at {escape(result.requested_time)}\n"
+            f"Artist: {escape(result.intake.assigned_artist.name if result.intake.assigned_artist else 'Unassigned')}\n"
+            f"vCita booking ID: <code>{escape(result.booking_uid)}</code>"
+        )
+
+    @staticmethod
+    def _format_client_schedule_notice(result: VcitaScheduleResult) -> str:
+        action = "rescheduled" if result.was_reschedule else "scheduled"
+        return (
+            f"Your tattoo appointment has been {action} for "
+            f"{result.requested_date} at {result.requested_time}. "
+            "Please let us know if you need to change anything."
+        )
 
     @staticmethod
     def _get_artist_by_user(telegram_user_id: Any) -> ArtistProfile | None:

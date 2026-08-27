@@ -1,6 +1,6 @@
 # Project Context
 
-Last reviewed: 2026-08-26
+Last reviewed: 2026-08-27
 
 ## Product Goal
 
@@ -51,7 +51,7 @@ CRM-style data models.
 
 Key models:
 
-- `Lead`: client identity by source plus phone/email.
+- `Lead`: client identity by source plus phone/email, including `vcita_client_uid` once mapped to vCita.
 - `Conversation`: threaded conversations, mainly useful for Outlook.
 - `Message`: incoming/outgoing message records.
 - `MediaFile`: downloaded WhatsApp media or Outlook attachments.
@@ -64,8 +64,8 @@ AI-backed intake state and analysis history.
 Key models:
 
 - `IntakeRequest`: canonical latest tattoo request state for a lead/conversation.
-- `AIAnalysis`: immutable snapshot of every AI analysis response, linked to the triggering message and intake, including summary and AI suggested price.
-- `ArtistProfile`: admin-managed artists, Telegram user IDs, private chat IDs, and Hoss-only approval flag.
+- `AIAnalysis`: immutable snapshot of every AI analysis response, linked to the triggering message and intake, including summary, AI suggested price, and AI-proposed appointment date/time.
+- `ArtistProfile`: admin-managed artists, Telegram user IDs, private chat IDs, Hoss-only approval flag, and optional vCita staff UID mapping.
 - `HumanDecision`: approval, rejection, assignment, edited reply, and artist reply actions.
 - `TelegramMessageLink`: maps bot messages to intakes so private artist replies can be resolved safely.
 - `OutboundAction`: audit trail for attempted client replies with pending/sent/failed status.
@@ -89,6 +89,7 @@ Current behavior:
 - High, medium, or unknown risk values route toward human review instead of auto-send.
 - High-risk review cards now use DB-driven inline buttons.
 - High-risk review cards show price, AI suggested price, optional price note, summary, and draft reply.
+- Review cards show AI-proposed appointment date/time when AI returns both `date` and `time`; this also reveals the Schedule button.
 - Assigned intakes route future client messages to the assigned artist's private Telegram inbox.
 - Assigned artist private cards include intake context such as idea, pricing, placement/size/color, and summary.
 - Artist private replies are mapped by reply-to message or `/reply REQUEST_ID ...` and sent back to the original client channel.
@@ -122,12 +123,13 @@ vCita integration foundation.
 
 Key models:
 
-- `VcitaAccount`: admin-managed API token and API base URL for Bearer-token calls.
+- `VcitaAccount`: admin-managed API token, API base URL, business UID/name, default service UID, default timezone, and optional webhook secret.
 - `VcitaWebhookEvent`: raw webhook event storage, including headers, payload, body, event/entity hints, external id, status, and processing error.
 
 Key code:
 
-- `VcitaAPIClient`: small Bearer-token client for vCita API calls.
+- `VcitaAPIClient`: Bearer-token client for vCita userinfo, staff/services discovery, webhook subscription/listing, client lookup/creation, availability checks, and booking create/update calls.
+- `VcitaSchedulingService`: creates or updates vCita bookings for assigned intakes and stores vCita booking IDs back on `IntakeRequest`.
 - `VcitaWebhook`: unauthenticated webhook receiver at `/api/v1/webhook/vcita/`.
 - `vcita_smoke_test`: management command that calls a simple vCita endpoint using the active account token.
 
@@ -135,7 +137,8 @@ Current behavior:
 
 - vCita webhook GET returns a health response.
 - vCita webhook POST stores raw payloads safely and returns `EVENT_RECEIVED`.
-- Webhook payloads are not yet mapped into `Lead`, `Conversation`, `IntakeRequest`, bookings, or payment state.
+- If a webhook payload contains a booking/appointment/meeting ID matching an intake, payment and booking status hints update `IntakeRequest` and notify Telegram.
+- Unknown vCita webhook payloads are stored only; live payload shapes still need verification.
 - The API token is stored in Django admin, not environment variables.
 
 ## Current Routes
@@ -197,6 +200,8 @@ The analysis endpoint returns updated structured intake fields:
 - `summary`
 - `suggested_price` / `price`
 - `pricing_reasoning`
+- `date`: AI-proposed appointment date in `YYYY-MM-DD`.
+- `time`: AI-proposed appointment time in `HH:MM`.
 - `draft_reply`: proposed client-facing reply.
 
 The backend also calls a summary endpoint for Telegram/human review. The summary endpoint is configured with `AI_SUMMARY_API_URL` and should be finalized with the AI engineer.
@@ -222,6 +227,9 @@ Artist assignment rules:
 - Hoss can approve an AI draft reply, reject, choose Edit Reply, or assign the active intake to an artist.
 - Edit Reply keeps the intake waiting for human action and tells Hoss to send the final client message with `/reply REQUEST_ID message text` in the shared group.
 - Hoss can choose Edit Price and then update internal approved pricing with `/price REQUEST_ID price | optional note`.
+- Hoss can schedule an assigned intake with the Schedule button when AI provided date/time, or with `/schedule REQUEST_ID YYYY-MM-DD HH:MM`.
+- Schedule commands use the vCita account timezone, defaulting to `Europe/Amsterdam`; date/time are stored separately in the DB exactly as AI/Hoss provided them.
+- If Hoss tries to schedule before assigning an artist, the bot replies: `Please assign an artist first, then schedule this request.`
 - Price updates are internal only and do not send anything to the client.
 - Older Telegram cards using the previous `manual` callback action are still routed into the Edit Reply flow.
 - Only Hoss, represented by an active `ArtistProfile` with `can_approve=True`, can use group `/reply` for an unassigned intake.
@@ -229,6 +237,7 @@ Artist assignment rules:
 - Assignment applies to the active `IntakeRequest`, not permanently to the whole lead.
 - After assignment, future client messages for that intake route to the assigned artist's private Telegram chat.
 - Assigned artist replies are sent automatically to the client through the original channel.
+- Successful vCita scheduling notifies the shared Telegram group, the assigned artist privately, and the client through the original channel.
 - Artist private replies should support text and media/files.
 - Current implementation supports Telegram text/photo/document private replies. WhatsApp receives media through Meta link sends; Outlook receives media as links in the email reply.
 

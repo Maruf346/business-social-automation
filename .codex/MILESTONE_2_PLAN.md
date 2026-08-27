@@ -161,6 +161,8 @@ Implemented on 2026-08-22:
 - Added summary and price persistence from AI responses.
 - Added Telegram card display for summary, AI suggested price, approved price, and price note.
 - Added Hoss-only Edit Price button and `/price REQUEST_ID price | optional note` command.
+- Added AI-proposed `date`/`time` persistence and Hoss-only scheduling through a conditional Schedule button or `/schedule REQUEST_ID YYYY-MM-DD HH:MM`.
+- Added vCita staff UID mapping on artists and scheduling/payment state storage on intakes.
 
 Still needs live verification:
 
@@ -290,25 +292,29 @@ Phase 1 implemented on 2026-08-26:
 - Added `VcitaAPIClient` with Bearer-token requests.
 - Added admin action and `vcita_smoke_test` management command to test one simple API call.
 
-Phase 2 planned:
+Phase 2 implemented initially on 2026-08-27:
 
 - Map backend `Lead` to vCita client.
 - Store vCita client UID/ID on the backend side.
 - Search/fetch existing vCita clients before creating duplicates.
-- Decide where vCita client IDs live: likely `Lead` extension fields or a dedicated mapping model.
+- Store vCita client IDs on `Lead.vcita_client_uid`.
 
-Phase 3 planned:
+Phase 3 implemented initially on 2026-08-27:
 
 - Booking workflow from approved intake.
 - Store vCita appointment/booking ID.
 - Update Telegram when booking status changes.
-- Decide the Hoss/artist command or admin action that creates/updates vCita booking records.
+- Schedule from Telegram through Hoss-only Schedule button or `/schedule REQUEST_ID YYYY-MM-DD HH:MM`.
+- Scheduling requires assigned artist and `ArtistProfile.vcita_staff_uid`.
+- Uses `VcitaAccount.business_uid`, `default_service_uid`, and `default_timezone`.
+- Live vCita token/payload verification remains before relying on this in production.
 
-Phase 4 planned:
+Phase 4 partially started on 2026-08-27:
 
 - Payment/deposit sync if exposed by vCita.
 - Admin dashboard visibility for vCita sync state.
 - Document unsupported vCita capabilities and safest alternatives.
+- Initial payment status update hooks exist for matching vCita webhook payloads; real payload shape must be verified.
 
 Deliverable:
 
@@ -365,5 +371,5 @@ Still needed:
 8. Add outbound action audit logging. Done 2026-08-23.
 9. Add Postgres/pgvector learning retrieval.
 10. Add pricing and richer image tags.
-11. Add calendar and vCita. vCita Phase 1 started 2026-08-26.
+11. Add calendar and vCita. vCita Phase 1 started 2026-08-26; initial scheduling/client/payment state implementation added 2026-08-27.
 12. Harden deployment. Started 2026-08-25 with Docker Hub CI/CD, production compose, nginx, Postgres env support, Redis env support, and optional S3 media settings.

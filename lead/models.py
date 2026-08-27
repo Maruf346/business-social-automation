@@ -12,6 +12,7 @@ class Lead(models.Model):
     name = models.CharField(max_length=255, null=True, blank=True)
     phone_number = models.CharField(max_length=20, blank=True ,null=True)
     email = models.EmailField(max_length=255, blank=True ,null=True)
+    vcita_client_uid = models.CharField(max_length=255, blank=True, default="")
 
     profile_pic = models.URLField(null=True, blank=True)
     is_blocked = models.BooleanField(default=False)

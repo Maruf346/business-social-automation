@@ -4,9 +4,9 @@ from .models import Lead, Message, MediaFile, Tag, LeadTag
 
 @admin.register(Lead)
 class LeadAdmin(admin.ModelAdmin):
-    list_display = ("id", "name", "source", "phone_number", "email", "last_message_at", "created_at")
+    list_display = ("id", "name", "source", "phone_number", "email", "vcita_client_uid", "last_message_at", "created_at")
     list_filter = ("source", "is_blocked", "created_at")
-    search_fields = ("name", "phone_number", "email")
+    search_fields = ("name", "phone_number", "email", "vcita_client_uid")
     ordering = ("-created_at",)
 
 

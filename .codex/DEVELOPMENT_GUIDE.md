@@ -168,8 +168,8 @@ Models:
 - `IntakeRequest`: latest known tattoo request state.
 - `AIAnalysis`: raw and normalized AI response snapshots.
 - `OutboundAction`: pending/sent/failed audit records for client reply attempts.
-- Current intake state stores AI summary, AI suggested price, Hoss-approved price, price note, approver, and approval timestamp.
-- Django admin for `IntakeRequest` is organized for local testing: summary, draft reply, AI suggested price, approved price, and price note can be edited directly before sending a Telegram review card.
+- Current intake state stores AI summary, AI suggested price, Hoss-approved price, price note, approver, approval timestamp, AI-proposed appointment date/time, schedule state, vCita booking UID, and payment state.
+- Admin panel for `IntakeRequest` is organized for local testing: summary, draft reply, AI suggested price, approved price, price note, appointment date, and appointment time can be edited directly before sending a Telegram review card.
 
 Service:
 
@@ -185,15 +185,19 @@ After model changes:
 
 ## vCita App
 
-The `vcita` app is Phase 1 scaffolding for the vCita calendar/booking path.
+The `vcita` app handles vCita account setup, webhook capture, booking scheduling, and basic payment/status sync.
 
 Admin setup:
 
-1. Open Django admin.
+1. Open the Admin panel.
 2. Add a `VcitaAccount`.
 3. Set `api_token` to the vCita API token.
 4. Keep `api_base_url=https://api.vcita.biz` unless vCita provides another endpoint.
 5. Set `is_active=True`.
+6. Run the Admin panel action `Sync vCita business info from token`; this fills `business_uid` and `business_name` from `/oauth/userinfo`.
+7. Run `Show active vCita staff IDs`; copy each artist's vCita staff UID into their `ArtistProfile.vcita_staff_uid`.
+8. Run `Show vCita service IDs`; copy the chosen tattoo/consultation service UID into `VcitaAccount.default_service_uid`.
+9. Keep `default_timezone=Europe/Amsterdam` unless the studio changes scheduling timezone.
 
 Webhook URL:
 
@@ -205,7 +209,18 @@ Current behavior:
 
 - `GET /api/v1/webhook/vcita/` returns a health response.
 - `POST /api/v1/webhook/vcita/` stores the raw webhook payload in `VcitaWebhookEvent`.
-- No lead/client/booking/payment mapping happens yet.
+- If `VcitaAccount.webhook_secret` is set, vCita webhook calls must include the same value as `?secret=...` or `X-Vcita-Webhook-Secret`.
+- Payment/cancel/reschedule webhook events update an `IntakeRequest` only when the payload contains a booking/appointment/meeting ID matching `IntakeRequest.vcita_booking_uid`.
+- Unknown vCita webhook payloads are stored only so real live shapes can be inspected later.
+
+Scheduling:
+
+- AI returns `date` as `YYYY-MM-DD` and `time` as `HH:MM`; the backend stores those exact values as `appointment_date` and `appointment_time`.
+- The Telegram Schedule button appears only when both fields are present.
+- Hoss can also schedule manually with `/schedule REQUEST_ID YYYY-MM-DD HH:MM`.
+- Scheduling requires the intake to be assigned to an artist first.
+- Successful scheduling creates or updates the vCita booking, stores `vcita_booking_uid`, notifies the group, sends the client a scheduling message through the original channel, and notifies the assigned artist privately.
+- Fake/admin-created intakes with `source=other` can test Telegram/vCita flow, but client notification will report `Unsupported intake source: other`.
 
 Smoke-test the API token after adding `VcitaAccount`:
 
@@ -219,11 +234,11 @@ Or inside production Docker:
 docker compose -f docker-compose.prod.yml exec backend python manage.py vcita_smoke_test
 ```
 
-After vCita model changes:
+After vCita/lead/intake model changes:
 
 ```powershell
-.\.venv\Scripts\python.exe manage.py makemigrations vcita
-.\.venv\Scripts\python.exe manage.py migrate vcita
+.\.venv\Scripts\python.exe manage.py makemigrations lead intake vcita
+.\.venv\Scripts\python.exe manage.py migrate
 ```
 
 ## External AI Service
@@ -235,7 +250,7 @@ Backend expectations today:
 - Call analysis endpoint from `AI_API_URL`.
 - Call summary endpoint for Telegram review.
 - Send current message, recent history, image URLs, and canonical backend state through `existing_db_state`.
-- Receive updated structured fields including tattoo idea, style tags, placement, size estimate, color preference, suggested artist, confidence level, AI reasoning, missing information, risk level, and draft reply.
+- Receive updated structured fields including tattoo idea, style tags, placement, size estimate, color preference, suggested artist, confidence level, AI reasoning, missing information, risk level, summary, suggested price, appointment date/time, and draft reply.
 - Persist AI response fields back to the backend database after every AI call.
 - Send the updated DB state back to AI on the next message.
 
@@ -265,9 +280,12 @@ Telegram:
 - `/whoami` returns Telegram user/chat IDs and stores private chat ID for registered artists.
 - Callback query handling supports Hoss-only approve/reject/Edit Reply/assign actions.
 - Callback query handling supports Hoss-only Edit Price.
+- Callback query handling supports Hoss-only Schedule when AI-proposed date/time exists.
 - Shared group actions must be authorized to Hoss only.
 - Edit Reply tells Hoss to send `/reply REQUEST_ID message text` in the group; only an artist with `can_approve=True` can send that command for an unassigned intake.
 - Edit Price tells Hoss to send `/price REQUEST_ID price | optional note`; this updates internal pricing only.
+- Manual scheduling format is `/schedule REQUEST_ID YYYY-MM-DD HH:MM`.
+- If Hoss tries to schedule before assignment, the bot tells him to assign an artist first.
 - Older cards with the previous `manual` callback action are treated as Edit Reply for backward compatibility.
 - Artist private replies should be mapped by `reply_to_message.message_id` to a stored `TelegramMessageLink`.
 - Assigned artist fallback reply format should be `/reply REQUEST_ID message text`.
@@ -275,7 +293,7 @@ Telegram:
 - Artists can send text, photos, or documents in private replies. WhatsApp receives media through Meta link sends; Outlook receives media links in the email reply.
 - Fake/admin-created intakes with `source=other` can test Telegram cards and button routing, but they cannot send real client replies. Approve/Edit/artist send actions should report this in Telegram instead of crashing the webhook.
 
-Artist setup in Django admin:
+Artist setup in the Admin panel:
 
 1. Create an `ArtistProfile` for Hoss.
 2. Set Hoss `telegram_user_id`.
@@ -283,6 +301,7 @@ Artist setup in Django admin:
 4. Create `ArtistProfile` rows for other artists.
 5. Ask each artist to start the bot and run `/whoami`.
 6. Copy/store their `telegram_user_id` if not already known; the private `telegram_chat_id` is saved automatically for registered artists.
+7. Copy each artist's vCita staff UID into `vcita_staff_uid` before using vCita scheduling.
 
 ## Testing Strategy
 

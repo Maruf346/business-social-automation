@@ -1,6 +1,6 @@
 # AI Integration Contract
 
-Last reviewed: 2026-08-23
+Last reviewed: 2026-08-27
 
 ## Ownership Boundary
 
@@ -91,6 +91,8 @@ Successful response:
   "summary": "string",
   "suggested_price": "$250-$350",
   "pricing_reasoning": "string",
+  "date": "2026-09-04",
+  "time": "14:30",
   "draft_reply": "string"
 }
 ```
@@ -100,6 +102,9 @@ Pricing note:
 - `suggested_price` is stored as text because AI may include currency, ranges, qualifiers, or "depends on size".
 - The backend also accepts equivalent price keys such as `price`, `price_estimate`, `price_range`, or `ai_suggested_price`.
 - AI suggested price is internal until Hoss approves or includes pricing in a client-facing reply.
+- `date` is optional but must be `YYYY-MM-DD` when present.
+- `time` is optional but must be `HH:MM` in 24-hour format when present.
+- The backend stores `date` and `time` separately and only combines them with the vCita timezone during booking API calls.
 
 Known error responses:
 
@@ -178,6 +183,8 @@ Minimum state to persist per intake/request:
 - `summary`
 - `suggested_price`
 - `pricing_reasoning`
+- `date`
+- `time`
 - `draft_reply`
 - raw AI response payload
 - source message that caused the analysis
@@ -259,6 +266,13 @@ Recommended `existing_db_state`:
     "ai_suggested_price": "$250-$350",
     "approved_price": "$300",
     "price_note": "approved after size review",
+    "appointment_date": "2026-09-04",
+    "appointment_time": "14:30",
+    "scheduled_date": "",
+    "scheduled_time": "",
+    "schedule_status": "not_scheduled",
+    "vcita_booking_uid": "",
+    "payment_status": "unknown",
     "status": "collecting_info"
   },
   "latest_ai_analysis": {
@@ -267,6 +281,8 @@ Recommended `existing_db_state`:
     "summary": "string",
     "suggested_price": "$250-$350",
     "pricing_reasoning": "string",
+    "date": "2026-09-04",
+    "time": "14:30",
     "draft_reply": "string"
   }
 }
@@ -297,7 +313,9 @@ Backend should tolerate partial AI responses but should validate critical fields
 - Hoss-only approval and artist assignment happen after the high-risk AI route, not inside the AI service.
 - High-risk review cards now call backend Telegram workflow code; AI only provides summary/draft content.
 - Telegram review cards show stored summary, AI suggested price, approved price, price note, and draft reply.
+- Telegram review cards show AI-proposed `date`/`time` and expose a Schedule button only when both are present.
 - Hoss can update internal approved price with `/price REQUEST_ID price | optional note`; this does not send anything to the client.
+- Hoss can schedule with `/schedule REQUEST_ID YYYY-MM-DD HH:MM`; only Hoss can run this command.
 - Assigned artist replies bypass AI and are sent to the client through the original channel.
 
 ## Open Implementation Questions
