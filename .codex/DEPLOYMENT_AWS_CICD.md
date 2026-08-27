@@ -1,6 +1,6 @@
 # AWS / Docker Hub Deployment Notes
 
-Last reviewed: 2026-08-25
+Last reviewed: 2026-08-27
 
 ## Current Goal
 
@@ -32,6 +32,7 @@ Runtime plan:
 - `docker-compose.yml`
 - `docker-compose.prod.yml`
 - `nginx/default.conf`
+- `nginx/default.ssl.conf.template`
 - `.env.example`
 
 ## GitHub Configuration
@@ -73,6 +74,8 @@ The EC2 server should have:
 - Security group inbound rule for HTTP `80`.
 - Security group inbound rule for SSH `22`, restricted to the developer IP where possible.
 - HTTPS `443` once a domain/TLS certificate is added.
+- Let's Encrypt certificates on the host under `/etc/letsencrypt`.
+- Optional ACME webroot directory under `/var/www/certbot`.
 
 Do not commit `.env`.
 
@@ -83,6 +86,7 @@ Use production values:
 - `DEBUG=False`
 - `ALLOWED_HOSTS=<EC2_PUBLIC_IP>`
 - `CSRF_TRUSTED_ORIGINS=http://<EC2_PUBLIC_IP>`
+- After domain/SSL, use `ALLOWED_HOSTS=<api-domain>` and `CSRF_TRUSTED_ORIGINS=https://<api-domain>`.
 - `SERVE_MEDIA=False` when S3 is enabled.
 - `USE_S3=True`
 - `AWS_STORAGE_BUCKET_NAME=<bucket>`
@@ -104,3 +108,15 @@ After deploy:
 - Visit `http://<EC2_PUBLIC_IP>/api/docs/`.
 - Confirm admin loads at `http://<EC2_PUBLIC_IP>/admin/`.
 - Use temporary HTTPS tunneling or a real domain/TLS setup before configuring live Telegram or Meta/WhatsApp webhooks.
+
+## SSL Setup Notes
+
+For a GoDaddy-managed subdomain such as `api.example.com`:
+
+1. Add an `A` record pointing `api` to the EC2 Elastic IP.
+2. Allow inbound `443` in the EC2 security group.
+3. Issue a Let's Encrypt certificate on EC2 with Certbot standalone while the Docker nginx container is stopped.
+4. Replace `api.YOUR_DOMAIN.com` in `nginx/default.ssl.conf.template` with the real API domain.
+5. Copy the SSL template into `nginx/default.conf` and redeploy.
+
+The production compose mounts `/etc/letsencrypt` read-only into the nginx container and publishes both `80` and `443`.
