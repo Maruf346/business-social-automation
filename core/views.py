@@ -6,6 +6,7 @@ import logging
 from django.conf import settings
 from django.http import HttpResponse
 from rest_framework import status
+from rest_framework.renderers import BaseRenderer, JSONRenderer
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, OpenApiTypes, extend_schema
@@ -19,6 +20,19 @@ from core.services.orchestrator import WebhookOrchestrator
 from intake.telegram_workflow import TelegramWorkflowService
 
 logger = logging.getLogger(__name__)
+
+
+class PlainTextRenderer(BaseRenderer):
+    media_type = "text/plain"
+    format = "txt"
+    charset = "utf-8"
+
+    def render(self, data, accepted_media_type=None, renderer_context=None):
+        if data is None:
+            return b""
+        if isinstance(data, bytes):
+            return data
+        return str(data).encode(self.charset)
 
 
 class WhatsappWebhook(APIView):
@@ -138,6 +152,7 @@ class WhatsappWebhook(APIView):
 class OutlookWebhook(APIView):
     authentication_classes: list = []
     permission_classes: list = []
+    renderer_classes = [JSONRenderer, PlainTextRenderer]
 
     @extend_schema(
         parameters=[

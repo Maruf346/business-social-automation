@@ -272,6 +272,7 @@ Outlook:
 
 - GET handles Microsoft validation token.
 - POST handles Microsoft validation token, logs payload, and calls the Outlook orchestrator.
+- The Outlook webhook explicitly supports `text/plain` responses because Microsoft Graph validation requests can send an `Accept: text/plain` header.
 - `WebhookSubscription` save triggers Microsoft Graph subscription create/update/delete through Django signals.
 - Subscription create/renew payloads include `expirationDateTime` normalized to UTC `Z` format.
 - If Microsoft Graph rejects subscription create/renew, the Admin panel save no longer crashes; the subscription row is marked `FAILED` and `sync_error` stores the Graph response.
