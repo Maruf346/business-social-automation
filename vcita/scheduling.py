@@ -65,7 +65,12 @@ class VcitaSchedulingService:
         if not account.default_service_uid:
             raise VcitaSchedulingError("vCita default service UID is missing. Add it in the Admin panel first.")
 
-        vcita_client_uid = self._get_or_create_client_uid(intake.lead, account, client)
+        vcita_client_uid = self._get_or_create_client_uid(
+            intake.lead,
+            account,
+            client,
+            staff_uid=intake.assigned_artist.vcita_staff_uid,
+        )
         was_reschedule = bool(intake.vcita_booking_uid)
         self._check_availability(
             client=client,
@@ -133,14 +138,21 @@ class VcitaSchedulingService:
             was_reschedule=was_reschedule,
         )
 
-    def _get_or_create_client_uid(self, lead: Lead, account: VcitaAccount, client: VcitaAPIClient) -> str:
+    def _get_or_create_client_uid(
+        self,
+        lead: Lead,
+        account: VcitaAccount,
+        client: VcitaAPIClient,
+        staff_uid: str = "",
+    ) -> str:
         if lead.vcita_client_uid:
             return lead.vcita_client_uid
 
         search_term = (lead.email or lead.phone_number or "").strip()
         if search_term:
+            search_by = "email" if lead.email else "phone"
             try:
-                search_response = client.search_clients(search_term)
+                search_response = client.search_clients(search_term, search_by=search_by)
             except VcitaAPIError:
                 search_response = {}
             existing_uid = self._extract_uid(
@@ -152,7 +164,7 @@ class VcitaSchedulingService:
                 lead.save(update_fields=["vcita_client_uid", "updated_at"])
                 return existing_uid
 
-        payload = self._build_client_payload(lead, account)
+        payload = self._build_client_payload(lead, account, staff_uid=staff_uid)
         try:
             response = client.create_client(payload)
         except VcitaAPIError as exc:
@@ -203,7 +215,7 @@ class VcitaSchedulingService:
         if slots and not self._slot_matches(slots, start_local):
             raise VcitaSchedulingError("That vCita slot is not available. Please choose another date/time.")
 
-    def _build_client_payload(self, lead: Lead, account: VcitaAccount) -> dict[str, Any]:
+    def _build_client_payload(self, lead: Lead, account: VcitaAccount, staff_uid: str = "") -> dict[str, Any]:
         display_name = (lead.name or "").strip() or lead.email or lead.phone_number or f"Lead #{lead.pk}"
         first_name, last_name = self._split_client_name(display_name, lead.pk)
         client_payload: dict[str, Any] = {
@@ -211,12 +223,16 @@ class VcitaSchedulingService:
             "name": display_name,
             "first_name": first_name,
             "last_name": last_name,
+            "source_channel": "tattoo-hysteria-backend",
+            "source_name": "Tattoo Hysteria AI Intake",
         }
+        if staff_uid:
+            client_payload["staff_id"] = staff_uid
         if lead.email:
             client_payload["email"] = lead.email
         if lead.phone_number:
             client_payload["phone"] = lead.phone_number
-        return {"client": client_payload}
+        return client_payload
 
     @staticmethod
     def _split_client_name(display_name: str, lead_id: int) -> tuple[str, str]:

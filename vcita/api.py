@@ -42,8 +42,11 @@ class VcitaAPIClient:
     def list_services(self, business_uid: str) -> dict:
         return self.get("/platform/v1/services", params={"business_id": business_uid})
 
-    def search_clients(self, query: str) -> dict:
-        return self.get("/v2/search", params={"query": query, "entity": "client"})
+    def search_clients(self, query: str, search_by: str = "") -> dict:
+        params = {"search_term": query}
+        if search_by:
+            params["search_by"] = search_by
+        return self.get("/platform/v1/clients", params=params)
 
     def create_client(self, payload: dict[str, Any]) -> dict:
         return self.post("/platform/v1/clients", json=payload)
