@@ -272,6 +272,8 @@ Outlook:
 
 - GET handles Microsoft validation token.
 - POST handles Microsoft validation token, logs payload, and calls the Outlook orchestrator.
+- `WebhookSubscription` save triggers Microsoft Graph subscription create/update/delete through Django signals.
+- Subscription create/renew payloads include `expirationDateTime` normalized to UTC `Z` format.
 - Live end-to-end behavior still requires valid Graph credentials and webhook subscription data.
 
 Telegram:

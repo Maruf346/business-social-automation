@@ -8,6 +8,14 @@ from django.utils import timezone
 class GraphSubscriptionService:
     GRAPH_SCOPE = "https://graph.microsoft.com/.default"
 
+    @staticmethod
+    def _graph_datetime(value):
+        if not value:
+            return None
+        if timezone.is_naive(value):
+            value = timezone.make_aware(value, timezone.get_current_timezone())
+        return value.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+
     @classmethod
     def create_subscription(cls, subscription):
         token = cls.get_access_token(subscription.outlook)
@@ -16,7 +24,7 @@ class GraphSubscriptionService:
             "changeType": subscription.change_type,
             "notificationUrl": subscription.notification_url,
             "resource": subscription.resource,
-            # "expirationDateTime": subscription.expiration_date.isoformat(),
+            "expirationDateTime": cls._graph_datetime(subscription.expiration_date),
             "clientState": subscription.client_state,
         }
         response = requests.post(
@@ -37,7 +45,7 @@ class GraphSubscriptionService:
             f"subscriptions/{subscription.subscription_id}"
         )
         payload = {
-            "expirationDateTime": subscription.expiration_date.isoformat()
+            "expirationDateTime": cls._graph_datetime(subscription.expiration_date)
         }
         response = requests.patch(
             url,

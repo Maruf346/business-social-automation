@@ -1,6 +1,6 @@
 # Technical Debt and Risks
 
-Last reviewed: 2026-08-26
+Last reviewed: 2026-08-29
 
 ## High Priority
 
@@ -16,6 +16,7 @@ Next:
 
 - Configure an `OutlookAccount`.
 - Create/verify a `WebhookSubscription`.
+- `WebhookSubscription` creation now sends `expirationDateTime` to Microsoft Graph in UTC `Z` format.
 - Send a live or fixture-backed Graph notification through the endpoint.
 
 ### No Automated Tests
