@@ -1,5 +1,6 @@
 from django.db import transaction
 from django.utils import timezone
+import requests
 
 from core.models import WebhookSubscription
 from core.outlook.graph_subscription import GraphSubscriptionService
@@ -22,9 +23,13 @@ class SubscriptionSyncService:
 
     @classmethod
     def create(cls, subscription):
-        response = GraphSubscriptionService.create_subscription(
-            subscription
-        )
+        try:
+            response = GraphSubscriptionService.create_subscription(
+                subscription
+            )
+        except Exception as exc:
+            cls._mark_failed(subscription, exc)
+            return
         WebhookSubscription.objects.filter(
             pk=subscription.pk
         ).update(
@@ -45,10 +50,14 @@ class SubscriptionSyncService:
             old.change_type != subscription.change_type,
         ])
         if recreate:
-            GraphSubscriptionService.delete_subscription(old)
-            response = GraphSubscriptionService.create_subscription(
-                subscription
-            )
+            try:
+                GraphSubscriptionService.delete_subscription(old)
+                response = GraphSubscriptionService.create_subscription(
+                    subscription
+                )
+            except Exception as exc:
+                cls._mark_failed(subscription, exc)
+                return
             WebhookSubscription.objects.filter(
                 pk=subscription.pk
             ).update(
@@ -60,9 +69,13 @@ class SubscriptionSyncService:
             return
 
         if old.expiration_date != subscription.expiration_date:
-            response = GraphSubscriptionService.renew_subscription(
-                subscription
-            )
+            try:
+                response = GraphSubscriptionService.renew_subscription(
+                    subscription
+                )
+            except Exception as exc:
+                cls._mark_failed(subscription, exc)
+                return
             WebhookSubscription.objects.filter(
                 pk=subscription.pk
             ).update(
@@ -70,6 +83,24 @@ class SubscriptionSyncService:
                 last_synced_at=timezone.now(),
                 sync_error="",
             )
+
+    @classmethod
+    def _mark_failed(cls, subscription, exc):
+        WebhookSubscription.objects.filter(pk=subscription.pk).update(
+            status="FAILED",
+            last_synced_at=timezone.now(),
+            sync_error=cls._format_error(exc),
+        )
+
+    @staticmethod
+    def _format_error(exc):
+        if isinstance(exc, requests.HTTPError) and exc.response is not None:
+            try:
+                body = exc.response.json()
+            except ValueError:
+                body = exc.response.text
+            return f"Microsoft Graph error {exc.response.status_code}: {body}"
+        return str(exc)
 
 
 

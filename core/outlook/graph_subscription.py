@@ -1,4 +1,4 @@
-from datetime import timedelta
+from datetime import timedelta, timezone as dt_timezone
 from django.db import transaction
 import requests
 from core.models import OutlookAccessToken
@@ -14,7 +14,7 @@ class GraphSubscriptionService:
             return None
         if timezone.is_naive(value):
             value = timezone.make_aware(value, timezone.get_current_timezone())
-        return value.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+        return value.astimezone(dt_timezone.utc).isoformat().replace("+00:00", "Z")
 
     @classmethod
     def create_subscription(cls, subscription):
