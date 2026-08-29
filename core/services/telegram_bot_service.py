@@ -34,13 +34,14 @@ class TelegramBotService:
         response.raise_for_status()
         return response.json()
 
-    def answer_callback_query(self, callback_query_id, text=""):
+    def answer_callback_query(self, callback_query_id, text="", show_alert=False):
         url = f"https://api.telegram.org/bot{self.bot_token}/answerCallbackQuery"
         response = requests.post(
             url,
             json={
                 "callback_query_id": callback_query_id,
                 "text": text,
+                "show_alert": show_alert,
             },
             timeout=30,
         )

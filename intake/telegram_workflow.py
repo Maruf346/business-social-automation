@@ -537,6 +537,16 @@ class TelegramWorkflowService:
         appointment_date: str | None = None,
         appointment_time: str | None = None,
     ) -> dict[str, Any]:
+        if not intake.assigned_artist_id:
+            message = "Please assign an artist first, then schedule this request."
+            if callback_id:
+                self.telegram.answer_callback_query(callback_id, message, show_alert=True)
+            self.telegram.send_message(
+                chat_id=chat_id,
+                text=f"Request #{intake.pk}: {message}",
+            )
+            return {"ok": False, "reason": "missing_artist_assignment", "intake_id": intake.pk}
+
         try:
             result = VcitaSchedulingService().schedule_intake(
                 intake=intake,
@@ -545,7 +555,7 @@ class TelegramWorkflowService:
             )
         except VcitaSchedulingError as exc:
             if callback_id:
-                self.telegram.answer_callback_query(callback_id, "Could not schedule request.")
+                self.telegram.answer_callback_query(callback_id, str(exc)[:200], show_alert=True)
             self.telegram.send_message(
                 chat_id=chat_id,
                 text=f"Request #{intake.pk}: could not schedule in vCita.\nReason: {escape(str(exc))}",

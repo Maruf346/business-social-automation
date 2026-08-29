@@ -221,6 +221,7 @@ Scheduling:
 - The Telegram Schedule button appears only when both fields are present.
 - Hoss can also schedule manually with `/schedule REQUEST_ID YYYY-MM-DD HH:MM`.
 - Scheduling requires the intake to be assigned to an artist first.
+- If the Schedule button is pressed before assignment, Telegram shows an alert and group message telling Hoss to assign an artist first.
 - Successful scheduling creates or updates the vCita booking, stores `vcita_booking_uid`, notifies the group, sends the client a scheduling message through the original channel, and notifies the assigned artist privately.
 - vCita client creation sends a flat payload with explicit `first_name` and `last_name`; do not wrap it in `{"client": ...}` because vCita rejects that shape as a blank first name. When the lead only has email/phone, fallback names are generated as `Tattoo Lead REQUEST_ID`.
 - vCita client lookup uses `/platform/v1/clients` with `search_by=email` or `search_by=phone` before creating a new client.
