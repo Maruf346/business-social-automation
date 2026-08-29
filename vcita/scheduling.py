@@ -205,15 +205,28 @@ class VcitaSchedulingService:
 
     def _build_client_payload(self, lead: Lead, account: VcitaAccount) -> dict[str, Any]:
         display_name = (lead.name or "").strip() or lead.email or lead.phone_number or f"Lead #{lead.pk}"
+        first_name, last_name = self._split_client_name(display_name, lead.pk)
         client_payload: dict[str, Any] = {
             "business_id": account.business_uid,
             "name": display_name,
+            "first_name": first_name,
+            "last_name": last_name,
         }
         if lead.email:
             client_payload["email"] = lead.email
         if lead.phone_number:
             client_payload["phone"] = lead.phone_number
         return {"client": client_payload}
+
+    @staticmethod
+    def _split_client_name(display_name: str, lead_id: int) -> tuple[str, str]:
+        cleaned = (display_name or "").strip()
+        if not cleaned or "@" in cleaned:
+            return "Tattoo", f"Lead {lead_id}"
+        parts = cleaned.split(maxsplit=1)
+        first_name = parts[0].strip() or "Tattoo"
+        last_name = parts[1].strip() if len(parts) > 1 else f"Lead {lead_id}"
+        return first_name, last_name
 
     def _build_booking_payload(
         self,
