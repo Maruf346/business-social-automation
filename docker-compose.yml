@@ -45,5 +45,24 @@ services:
 
     restart: unless-stopped
 
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: tattoo_hysteria_worker
+    command: /app/docker/start-worker.sh
+    volumes:
+      - .:/app
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgres://${POSTGRES_USER:-tattoo_hysteria}:${POSTGRES_PASSWORD:-tattoo_hysteria_password}@db:5432/${POSTGRES_DB:-tattoo_hysteria}}
+      CELERY_BROKER_URL: ${CELERY_BROKER_URL:-redis://redis:6379/0}
+    depends_on:
+      - db
+      - redis
+      - backend
+    restart: unless-stopped
+
 volumes:
   postgres_data:

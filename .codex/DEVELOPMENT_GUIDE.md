@@ -143,6 +143,8 @@ Current important variables:
 - `GUNICORN_WORKERS`
 - `GUNICORN_THREADS`
 - `GUNICORN_TIMEOUT`
+- `CELERY_WORKER_CONCURRENCY`
+- `CELERY_LOG_LEVEL`
 
 GitHub Actions variables/secrets for Docker Hub:
 
@@ -277,6 +279,7 @@ Outlook:
 - Subscription create/renew payloads include `expirationDateTime` normalized to UTC `Z` format.
 - If Microsoft Graph rejects subscription create/renew, the Admin panel save no longer crashes; the subscription row is marked `FAILED` and `sync_error` stores the Graph response.
 - Live end-to-end behavior still requires valid Graph credentials and webhook subscription data.
+- Production Outlook/AI follow-up tasks require the `worker` service to be running and the Python `redis` package installed.
 
 Telegram:
 

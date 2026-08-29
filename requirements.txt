@@ -37,6 +37,7 @@ python-dateutil==2.9.0.post0
 python-dotenv==1.2.2
 PyYAML==6.0.3
 referencing==0.37.0
+redis==6.4.0
 requests==2.34.2
 rpds-py==2026.6.3
 six==1.17.0

@@ -27,7 +27,7 @@ This repository does not own the AI implementation itself. An AI engineer is bui
 - Auth/config scaffolding: SimpleJWT, custom `account.User`.
 - Task system: Celery, currently configured as eager in local settings.
 - Database: SQLite by default for local direct `runserver`; Postgres is supported through `DATABASE_URL` or `POSTGRES_*` env vars and is used by Docker Compose.
-- Deployment: Docker image build, production compose, nginx reverse proxy, Redis service, and optional S3 media storage are now scaffolded.
+- Deployment: Docker image build, production compose, nginx reverse proxy, Redis service, Celery worker service, and optional S3 media storage are now scaffolded.
 - External APIs: Meta WhatsApp Graph API, Microsoft Graph API, Telegram Bot API, external AI API.
 - vCita/inTandem integration: Phase 1 scaffold exists for account token storage, webhook capture, and Bearer-token API smoke checks.
 
@@ -161,8 +161,9 @@ Implemented deployment assets:
 
 - `Dockerfile` builds the Django/gunicorn image and runs `docker/start-web.sh`.
 - `docker/start-web.sh` runs migrations, collects static files, and starts gunicorn on port `8007`.
-- `docker-compose.yml` supports local container runs with backend, Postgres, and Redis.
-- `docker-compose.prod.yml` runs backend image, Postgres, Redis, and nginx.
+- `docker/start-worker.sh` starts the Celery worker for webhook follow-up tasks.
+- `docker-compose.yml` supports local container runs with backend, Celery worker, Postgres, and Redis.
+- `docker-compose.prod.yml` runs backend image, Celery worker, Postgres, Redis, and nginx.
 - `nginx/default.conf` listens on port `80` and proxies all traffic to the backend container.
 - `.github/workflows/pipeline.yml` builds and pushes the Docker image to Docker Hub on pushes to `main`.
 - The EC2 deploy job is gated by `ENABLE_EC2_DEPLOY=true` and then pulls the latest image and restarts `docker-compose.prod.yml` over SSH.

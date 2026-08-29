@@ -20,6 +20,7 @@ RUN pip install -r requirements.txt
 
 COPY . .
 RUN chmod +x /app/docker/start-web.sh
+RUN chmod +x /app/docker/start-worker.sh
 
 EXPOSE 8007
 

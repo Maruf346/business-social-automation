@@ -1,6 +1,6 @@
 # AWS / Docker Hub Deployment Notes
 
-Last reviewed: 2026-08-27
+Last reviewed: 2026-08-29
 
 ## Current Goal
 
@@ -18,7 +18,7 @@ Runtime plan:
 - EC2 pulls the latest image.
 - Backend repo lives in `/opt/tattoo-hysteria-backend`.
 - AI repo lives separately in `/opt/tattoo-hysteria-ai`.
-- `docker-compose.prod.yml` runs backend, Postgres, Redis, and nginx.
+- `docker-compose.prod.yml` runs backend, Celery worker, Postgres, Redis, and nginx.
 - nginx listens on port `80` and proxies to gunicorn on port `8007`.
 - Media uploads should use S3 when `USE_S3=True`.
 - Backend and AI should join the external Docker network `tattoo_hysteria_net` so the backend can call the AI container privately by service/container name.
@@ -29,6 +29,7 @@ Runtime plan:
 - `.github/workflows/pipeline.yml`
 - `Dockerfile`
 - `docker/start-web.sh`
+- `docker/start-worker.sh`
 - `docker-compose.yml`
 - `docker-compose.prod.yml`
 - `nginx/default.conf`

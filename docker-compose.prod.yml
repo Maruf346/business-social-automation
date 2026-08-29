@@ -36,6 +36,23 @@ services:
       - tattoo_hysteria_net
     restart: unless-stopped
 
+  worker:
+    image: ${DOCKER_IMAGE:?DOCKER_IMAGE is required}
+    container_name: tattoo_hysteria_worker
+    command: /app/docker/start-worker.sh
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgres://${POSTGRES_USER:-tattoo_hysteria}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-tattoo_hysteria}}
+      CELERY_BROKER_URL: ${CELERY_BROKER_URL:-redis://redis:6379/0}
+    depends_on:
+      - db
+      - redis
+      - backend
+    networks:
+      - tattoo_hysteria_net
+    restart: unless-stopped
+
   nginx:
     image: nginx:1.27-alpine
     container_name: tattoo_hysteria_nginx
