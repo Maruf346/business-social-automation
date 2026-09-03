@@ -271,8 +271,8 @@ class TelegramWorkflowService:
             return {"ok": False, "reason": "unauthorized"}
 
         text = (message.get("text") or "").strip()
-        parts = text.split(" ", 3)
-        if len(parts) < 4 or not parts[1].isdigit():
+        parts = text.split()
+        if len(parts) != 5 or not parts[1].isdigit():
             self.telegram.send_message(chat_id=chat_id, text=self._schedule_command_help())
             return {"ok": False, "reason": "invalid_schedule_command"}
 
@@ -291,8 +291,9 @@ class TelegramWorkflowService:
             chat_id=chat_id,
             message_id=message.get("message_id"),
             raw_update=raw_update,
-            appointment_date=parts[2],
-            appointment_time=parts[3],
+            service_code=parts[2],
+            appointment_date=parts[3],
+            appointment_time=parts[4],
         )
 
     def _handle_logs_command(
@@ -534,9 +535,19 @@ class TelegramWorkflowService:
         chat_id: int | None,
         message_id: int | None,
         raw_update: dict[str, Any],
+        service_code: str = "",
         appointment_date: str | None = None,
         appointment_time: str | None = None,
     ) -> dict[str, Any]:
+        if not service_code:
+            message = VcitaSchedulingService.service_code_help()
+            if callback_id:
+                self.telegram.answer_callback_query(callback_id, "Please select a service code first.", show_alert=True)
+            self.telegram.send_message(
+                chat_id=chat_id,
+                text=f"Request #{intake.pk}: {escape(message)}",
+            )
+            return {"ok": False, "reason": "missing_service_code", "intake_id": intake.pk}
         if not intake.assigned_artist_id:
             message = "Please assign an artist first, then schedule this request."
             if callback_id:
@@ -552,6 +563,7 @@ class TelegramWorkflowService:
                 intake=intake,
                 appointment_date=appointment_date,
                 appointment_time=appointment_time,
+                service_code=service_code,
             )
         except VcitaSchedulingError as exc:
             if callback_id:
@@ -567,7 +579,7 @@ class TelegramWorkflowService:
             actor=actor,
             action=HumanDecisionAction.SCHEDULE,
             note=(
-                f"Scheduled for {result.requested_date} {result.requested_time}. "
+                f"Scheduled {result.service.code} for {result.requested_date} {result.requested_time}. "
                 f"vCita booking: {result.booking_uid}"
             ),
             telegram_chat_id=chat_id,
@@ -594,7 +606,7 @@ class TelegramWorkflowService:
                 intake=result.intake,
                 text=(
                     f"This request has been {'rescheduled' if result.was_reschedule else 'scheduled'} "
-                    f"for {result.requested_date} at {result.requested_time}."
+                    f"for {result.service.code} on {result.requested_date} at {result.requested_time}."
                 ),
             )
         return {
@@ -798,6 +810,10 @@ class TelegramWorkflowService:
             price_lines.append(
                 f"Scheduled: {escape(intake.scheduled_date)} at {escape(intake.scheduled_time)}"
             )
+            if intake.scheduled_service_code:
+                price_lines.append(
+                    f"Service: {escape(intake.scheduled_service_code)} - {escape(intake.scheduled_service_name)}"
+                )
         if intake.payment_status:
             price_lines.append(f"Payment status: {escape(intake.get_payment_status_display())}")
 
@@ -843,6 +859,10 @@ class TelegramWorkflowService:
             detail_lines.append(f"Color: {escape(intake.color_preference or 'None')}")
         if intake.scheduled_date and intake.scheduled_time:
             detail_lines.append(f"Scheduled: {escape(intake.scheduled_date)} at {escape(intake.scheduled_time)}")
+            if intake.scheduled_service_code:
+                detail_lines.append(
+                    f"Service: {escape(intake.scheduled_service_code)} - {escape(intake.scheduled_service_name)}"
+                )
         elif intake.appointment_date and intake.appointment_time:
             detail_lines.append(f"Suggested schedule: {escape(intake.appointment_date)} at {escape(intake.appointment_time)}")
 
@@ -893,8 +913,9 @@ class TelegramWorkflowService:
     @staticmethod
     def _schedule_command_help() -> str:
         return (
-            "Use /schedule REQUEST_ID YYYY-MM-DD HH:MM.\n"
-            "Example: /schedule 1 2026-09-04 14:30"
+            "Use /schedule REQUEST_ID SERVICE_CODE YYYY-MM-DD HH:MM.\n"
+            "Example: /schedule 1 OCH 2026-09-04 14:30\n\n"
+            f"{VcitaSchedulingService.service_code_help()}"
         )
 
     @staticmethod
@@ -969,6 +990,7 @@ class TelegramWorkflowService:
         return (
             f"Request #{result.intake.pk} {action} in vCita.\n"
             f"When: {escape(result.requested_date)} at {escape(result.requested_time)}\n"
+            f"Service: {escape(result.service.code)} - {escape(result.service.name)}\n"
             f"Artist: {escape(result.intake.assigned_artist.name if result.intake.assigned_artist else 'Unassigned')}\n"
             f"vCita booking ID: <code>{escape(result.booking_uid)}</code>"
         )
@@ -977,7 +999,7 @@ class TelegramWorkflowService:
     def _format_client_schedule_notice(result: VcitaScheduleResult) -> str:
         action = "rescheduled" if result.was_reschedule else "scheduled"
         return (
-            f"Your tattoo appointment has been {action} for "
+            f"Your {result.service.name} appointment has been {action} for "
             f"{result.requested_date} at {result.requested_time}. "
             "Please let us know if you need to change anything."
         )

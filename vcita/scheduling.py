@@ -11,7 +11,7 @@ from intake.models import IntakeRequest, PaymentStatus, ScheduleStatus
 from lead.models import Lead
 
 from .api import VcitaAPIClient, VcitaAPIError
-from .models import VcitaAccount
+from .models import VcitaAccount, VcitaService
 
 
 class VcitaSchedulingError(Exception):
@@ -25,6 +25,7 @@ class VcitaSchedulingError(Exception):
 class VcitaScheduleResult:
     intake: IntakeRequest
     account: VcitaAccount
+    service: VcitaService
     requested_date: str
     requested_time: str
     booking_uid: str
@@ -47,6 +48,7 @@ class VcitaSchedulingService:
         intake: IntakeRequest,
         appointment_date: str | None = None,
         appointment_time: str | None = None,
+        service_code: str = "",
     ) -> VcitaScheduleResult:
         account = self._require_account()
         client = self._require_client()
@@ -62,9 +64,8 @@ class VcitaSchedulingService:
             )
         if not account.business_uid:
             raise VcitaSchedulingError("vCita business UID is missing. Sync user info or add it in the Admin panel.")
-        if not account.default_service_uid:
-            raise VcitaSchedulingError("vCita default service UID is missing. Add it in the Admin panel first.")
 
+        service = self._get_service(account, service_code)
         vcita_client_uid = self._get_or_create_client_uid(
             intake.lead,
             account,
@@ -74,7 +75,7 @@ class VcitaSchedulingService:
         was_reschedule = bool(intake.vcita_booking_uid)
         self._check_availability(
             client=client,
-            account=account,
+            service=service,
             staff_uid=intake.assigned_artist.vcita_staff_uid,
             start_local=start_local,
             exclude_booking_uid=intake.vcita_booking_uid if was_reschedule else "",
@@ -83,6 +84,7 @@ class VcitaSchedulingService:
         payload = self._build_booking_payload(
             intake=intake,
             account=account,
+            service=service,
             client_uid=vcita_client_uid,
             staff_uid=intake.assigned_artist.vcita_staff_uid,
             start_local=start_local,
@@ -111,6 +113,10 @@ class VcitaSchedulingService:
         with transaction.atomic():
             intake.scheduled_date = appointment_date
             intake.scheduled_time = appointment_time
+            intake.scheduled_service = service
+            intake.scheduled_service_code = service.code
+            intake.scheduled_service_name = service.name
+            intake.scheduled_service_uid = service.vcita_service_uid
             intake.vcita_booking_uid = booking_uid
             intake.schedule_status = ScheduleStatus.RESCHEDULED if was_reschedule else ScheduleStatus.SCHEDULED
             intake.schedule_error = ""
@@ -120,6 +126,10 @@ class VcitaSchedulingService:
                 update_fields=[
                     "scheduled_date",
                     "scheduled_time",
+                    "scheduled_service",
+                    "scheduled_service_code",
+                    "scheduled_service_name",
+                    "scheduled_service_uid",
                     "vcita_booking_uid",
                     "schedule_status",
                     "schedule_error",
@@ -131,12 +141,46 @@ class VcitaSchedulingService:
         return VcitaScheduleResult(
             intake=intake,
             account=account,
+            service=service,
             requested_date=appointment_date,
             requested_time=appointment_time,
             booking_uid=booking_uid,
             raw_response=response,
             was_reschedule=was_reschedule,
         )
+
+    def _get_service(self, account: VcitaAccount, service_code: str) -> VcitaService:
+        normalized_code = (service_code or "").strip().upper()
+        if not normalized_code:
+            raise VcitaSchedulingError(self.service_code_help(account))
+
+        service = VcitaService.objects.filter(
+            account=account,
+            code=normalized_code,
+            is_active=True,
+        ).first()
+        if service:
+            return service
+
+        raise VcitaSchedulingError(
+            f"Unknown service code: {normalized_code}.\n{self.service_code_help(account)}"
+        )
+
+    @staticmethod
+    def service_code_help(account: VcitaAccount | None = None) -> str:
+        queryset = VcitaService.objects.filter(is_active=True).select_related("account").order_by("code")
+        if account:
+            queryset = queryset.filter(account=account)
+        services = list(queryset[:20])
+        if not services:
+            return "Please add an active vCita service mapping in the Admin panel before scheduling."
+
+        lines = ["Please select a service code to schedule this request:"]
+        for service in services:
+            lines.append(f"- {service.code}: {service.name}")
+        lines.append("Use /schedule REQUEST_ID SERVICE_CODE YYYY-MM-DD HH:MM")
+        lines.append("Example: /schedule 12 OCH 2026-09-04 14:30")
+        return "\n".join(lines)
 
     def _get_or_create_client_uid(
         self,
@@ -185,7 +229,7 @@ class VcitaSchedulingService:
     def _check_availability(
         self,
         client: VcitaAPIClient,
-        account: VcitaAccount,
+        service: VcitaService,
         staff_uid: str,
         start_local: datetime,
         exclude_booking_uid: str = "",
@@ -195,7 +239,7 @@ class VcitaSchedulingService:
         params: dict[str, Any] = {
             "start_time": start_utc.isoformat().replace("+00:00", "Z"),
             "end_time": end_utc.isoformat().replace("+00:00", "Z"),
-            "service_uid": account.default_service_uid,
+            "service_uid": service.vcita_service_uid,
             "staff_uids": staff_uid,
             "slot_duration": self.DEFAULT_DURATION_MINUTES,
         }
@@ -248,12 +292,14 @@ class VcitaSchedulingService:
         self,
         intake: IntakeRequest,
         account: VcitaAccount,
+        service: VcitaService,
         client_uid: str,
         staff_uid: str,
         start_local: datetime,
     ) -> dict[str, Any]:
         note_parts = [
             f"Request #{intake.pk}",
+            f"Service: {service.code} - {service.name}",
             f"Idea: {intake.tattoo_idea or 'Unclear'}",
         ]
         price = intake.approved_price or intake.ai_suggested_price
@@ -264,7 +310,7 @@ class VcitaSchedulingService:
 
         return {
             "business_id": account.business_uid,
-            "service_id": account.default_service_uid,
+            "service_id": service.vcita_service_uid,
             "staff_id": staff_uid,
             "client_id": client_uid,
             "start_time": start_local.isoformat(),
@@ -286,11 +332,11 @@ class VcitaSchedulingService:
     @staticmethod
     def _parse_local_start(appointment_date: str, appointment_time: str, timezone_name: str) -> datetime:
         if not appointment_date or not appointment_time:
-            raise VcitaSchedulingError("Schedule date/time is missing. Use /schedule REQUEST_ID YYYY-MM-DD HH:MM.")
+            raise VcitaSchedulingError("Schedule date/time is missing. Use /schedule REQUEST_ID SERVICE_CODE YYYY-MM-DD HH:MM.")
         try:
             parsed = datetime.strptime(f"{appointment_date} {appointment_time}", "%Y-%m-%d %H:%M")
         except ValueError as exc:
-            raise VcitaSchedulingError("Use this format: /schedule REQUEST_ID YYYY-MM-DD HH:MM") from exc
+            raise VcitaSchedulingError("Use this format: /schedule REQUEST_ID SERVICE_CODE YYYY-MM-DD HH:MM") from exc
 
         try:
             tzinfo = ZoneInfo(timezone_name or "Europe/Amsterdam")

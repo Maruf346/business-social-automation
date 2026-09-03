@@ -1,7 +1,7 @@
 from django.contrib import admin, messages
 
 from .api import VcitaAPIClient, VcitaAPIError
-from .models import VcitaAccount, VcitaWebhookEvent
+from .models import VcitaAccount, VcitaService, VcitaWebhookEvent
 
 
 @admin.register(VcitaAccount)
@@ -123,6 +123,27 @@ class VcitaAccountAdmin(admin.ModelAdmin):
             return f"{text[:1200]}..."
         return text
 
+
+@admin.register(VcitaService)
+class VcitaServiceAdmin(admin.ModelAdmin):
+    list_display = ("id", "code", "name", "vcita_service_uid", "account", "is_active", "updated_at")
+    list_filter = ("is_active", "account", "created_at", "updated_at")
+    search_fields = ("code", "name", "vcita_service_uid", "notes", "account__name")
+    fieldsets = (
+        (
+            "Service Mapping",
+            {
+                "fields": (
+                    "account",
+                    "code",
+                    "name",
+                    "vcita_service_uid",
+                    "is_active",
+                )
+            },
+        ),
+        ("Notes", {"fields": ("notes",)}),
+    )
 
 @admin.register(VcitaWebhookEvent)
 class VcitaWebhookEventAdmin(admin.ModelAdmin):

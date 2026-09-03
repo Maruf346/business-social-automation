@@ -170,7 +170,7 @@ Models:
 - `IntakeRequest`: latest known tattoo request state.
 - `AIAnalysis`: raw and normalized AI response snapshots.
 - `OutboundAction`: pending/sent/failed audit records for client reply attempts.
-- Current intake state stores AI summary, AI suggested price, Hoss-approved price, price note, approver, approval timestamp, AI-proposed appointment date/time, schedule state, vCita booking UID, and payment state.
+- Current intake state stores AI summary, AI suggested price, Hoss-approved price, price note, approver, approval timestamp, AI-proposed appointment date/time, chosen vCita service snapshot, schedule state, vCita booking UID, and payment state.
 - Admin panel for `IntakeRequest` is organized for local testing: summary, draft reply, AI suggested price, approved price, price note, appointment date, and appointment time can be edited directly before sending a Telegram review card.
 
 Service:
@@ -198,7 +198,7 @@ Admin setup:
 5. Set `is_active=True`.
 6. Run the Admin panel action `Sync vCita business info from token`; this fills `business_uid` and `business_name` from `/oauth/userinfo`.
 7. Run `Show active vCita staff IDs`; copy each artist's vCita staff UID into their `ArtistProfile.vcita_staff_uid`.
-8. Run `Show vCita service IDs`; copy the chosen tattoo/consultation service UID into `VcitaAccount.default_service_uid`.
+8. Run `Show vCita service IDs`; create `VcitaService` rows for each schedulable option with a short code, display name, and vCita service UID.
 9. Keep `default_timezone=Europe/Amsterdam` unless the studio changes scheduling timezone.
 
 Webhook URL:
@@ -219,10 +219,10 @@ Scheduling:
 
 - AI returns `date` as `YYYY-MM-DD` and `time` as `HH:MM`; the backend stores those exact values as `appointment_date` and `appointment_time`.
 - The Telegram Schedule button appears only when both fields are present.
-- Hoss can also schedule manually with `/schedule REQUEST_ID YYYY-MM-DD HH:MM`.
+- Hoss schedules manually with `/schedule REQUEST_ID SERVICE_CODE YYYY-MM-DD HH:MM`, for example `/schedule 12 OCH 2026-09-04 14:30`.
 - Scheduling requires the intake to be assigned to an artist first.
-- If the Schedule button is pressed before assignment, Telegram shows an alert and group message telling Hoss to assign an artist first.
-- Successful scheduling creates or updates the vCita booking, stores `vcita_booking_uid`, notifies the group, sends the client a scheduling message through the original channel, and notifies the assigned artist privately.
+- If the Schedule button is pressed, Telegram shows the available service codes and asks Hoss to run the full `/schedule` command. If scheduling is attempted before assignment, Telegram tells Hoss to assign an artist first.
+- Successful scheduling creates or updates the vCita booking using the selected `VcitaService`, stores `vcita_booking_uid` plus service code/name/UID snapshot, notifies the group, sends the client a scheduling message through the original channel, and notifies the assigned artist privately.
 - vCita client creation sends a flat payload with explicit `first_name` and `last_name`; do not wrap it in `{"client": ...}` because vCita rejects that shape as a blank first name. When the lead only has email/phone, fallback names are generated as `Tattoo Lead REQUEST_ID`.
 - vCita client lookup uses `/platform/v1/clients` with `search_by=email` or `search_by=phone` before creating a new client.
 - Fake/admin-created intakes with `source=other` can test Telegram/vCita flow, but client notification will report `Unsupported intake source: other`.
@@ -290,11 +290,11 @@ Telegram:
 - `/whoami` returns Telegram user/chat IDs and stores private chat ID for registered artists.
 - Callback query handling supports Hoss-only approve/reject/Edit Reply/assign actions.
 - Callback query handling supports Hoss-only Edit Price.
-- Callback query handling supports Hoss-only Schedule when AI-proposed date/time exists.
+- Callback query handling supports Hoss-only Schedule guidance when AI-proposed date/time exists.
 - Shared group actions must be authorized to Hoss only.
 - Edit Reply tells Hoss to send `/reply REQUEST_ID message text` in the group; only an artist with `can_approve=True` can send that command for an unassigned intake.
 - Edit Price tells Hoss to send `/price REQUEST_ID price | optional note`; this updates internal pricing only.
-- Manual scheduling format is `/schedule REQUEST_ID YYYY-MM-DD HH:MM`.
+- Manual scheduling format is `/schedule REQUEST_ID SERVICE_CODE YYYY-MM-DD HH:MM`.
 - If Hoss tries to schedule before assignment, the bot tells him to assign an artist first.
 - Hoss-only logs command supports `/logs`, `/logs REQUEST_ID`, `/logs --20`, and `/logs REQUEST_ID --20`.
 - `/logs` reads `HumanDecision` records, defaults to 10 rows, and rejects limits above 30.

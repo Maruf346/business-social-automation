@@ -123,7 +123,8 @@ vCita integration foundation.
 
 Key models:
 
-- `VcitaAccount`: admin-managed API token, API base URL, business UID/name, default service UID, default timezone, and optional webhook secret.
+- `VcitaAccount`: admin-managed API token, API base URL, business UID/name, legacy default service UID, default timezone, and optional webhook secret.
+- `VcitaService`: admin-managed service-code mapping from short Telegram code, such as `OCH`, to vCita service UID and display name.
 - `VcitaWebhookEvent`: raw webhook event storage, including headers, payload, body, event/entity hints, external id, status, and processing error.
 
 Key code:
@@ -228,9 +229,10 @@ Artist assignment rules:
 - Hoss can approve an AI draft reply, reject, choose Edit Reply, or assign the active intake to an artist.
 - Edit Reply keeps the intake waiting for human action and tells Hoss to send the final client message with `/reply REQUEST_ID message text` in the shared group.
 - Hoss can choose Edit Price and then update internal approved pricing with `/price REQUEST_ID price | optional note`.
-- Hoss can schedule an assigned intake with the Schedule button when AI provided date/time, or with `/schedule REQUEST_ID YYYY-MM-DD HH:MM`.
+- Hoss schedules an assigned intake with `/schedule REQUEST_ID SERVICE_CODE YYYY-MM-DD HH:MM`, for example `/schedule 12 OCH 2026-09-04 14:30`.
+- The Schedule button appears when AI provided date/time, but it now shows service-code guidance instead of silently using a default service.
 - Hoss can view human decision history with `/logs`, `/logs REQUEST_ID`, `/logs --20`, or `/logs REQUEST_ID --20`; default limit is 10 and max is 30.
-- Schedule commands use the vCita account timezone, defaulting to `Europe/Amsterdam`; date/time are stored separately in the DB exactly as AI/Hoss provided them.
+- Schedule commands resolve `SERVICE_CODE` through active `VcitaService` rows, use the vCita account timezone, defaulting to `Europe/Amsterdam`, and store date/time plus service snapshot on the intake.
 - If Hoss tries to schedule before assigning an artist, the bot replies: `Please assign an artist first, then schedule this request.`
 - Price updates are internal only and do not send anything to the client.
 - Older Telegram cards using the previous `manual` callback action are still routed into the Edit Reply flow.

@@ -161,7 +161,7 @@ Implemented on 2026-08-22:
 - Added summary and price persistence from AI responses.
 - Added Telegram card display for summary, AI suggested price, approved price, and price note.
 - Added Hoss-only Edit Price button and `/price REQUEST_ID price | optional note` command.
-- Added AI-proposed `date`/`time` persistence and Hoss-only scheduling through a conditional Schedule button or `/schedule REQUEST_ID YYYY-MM-DD HH:MM`.
+- Added AI-proposed `date`/`time` persistence and Hoss-only service-code scheduling through `/schedule REQUEST_ID SERVICE_CODE YYYY-MM-DD HH:MM`; the Schedule button now gives service-code guidance.
 - Added vCita staff UID mapping on artists and scheduling/payment state storage on intakes.
 - Added Hoss-only `/logs` command for recent `HumanDecision` history with optional request ID and row limit.
 
@@ -305,9 +305,9 @@ Phase 3 implemented initially on 2026-08-27:
 - Booking workflow from approved intake.
 - Store vCita appointment/booking ID.
 - Update Telegram when booking status changes.
-- Schedule from Telegram through Hoss-only Schedule button or `/schedule REQUEST_ID YYYY-MM-DD HH:MM`.
+- Schedule from Telegram through Hoss-only `/schedule REQUEST_ID SERVICE_CODE YYYY-MM-DD HH:MM`; the Schedule button guides Hoss to choose a service code.
 - Scheduling requires assigned artist and `ArtistProfile.vcita_staff_uid`.
-- Uses `VcitaAccount.business_uid`, `default_service_uid`, and `default_timezone`.
+- Uses `VcitaAccount.business_uid`, `default_timezone`, and an active `VcitaService` mapping for the selected service code.
 - Live vCita token/payload verification remains before relying on this in production.
 
 Phase 4 partially started on 2026-08-27:

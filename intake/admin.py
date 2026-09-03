@@ -33,6 +33,7 @@ class IntakeRequestAdmin(admin.ModelAdmin):
         "ai_suggested_price",
         "appointment_date",
         "appointment_time",
+        "scheduled_service_code",
         "schedule_status",
         "payment_status",
         "confidence_level",
@@ -61,6 +62,9 @@ class IntakeRequestAdmin(admin.ModelAdmin):
         "approved_price",
         "ai_suggested_price",
         "vcita_booking_uid",
+        "scheduled_service_code",
+        "scheduled_service_name",
+        "scheduled_service_uid",
     )
     readonly_fields = ("latest_raw_ai_response", "created_at", "updated_at")
     raw_id_fields = (
@@ -69,6 +73,7 @@ class IntakeRequestAdmin(admin.ModelAdmin):
         "whatsapp_account",
         "outlook_account",
         "last_incoming_message",
+        "scheduled_service",
     )
     fieldsets = (
         (
@@ -141,6 +146,10 @@ class IntakeRequestAdmin(admin.ModelAdmin):
                     "appointment_time",
                     "scheduled_date",
                     "scheduled_time",
+                    "scheduled_service",
+                    "scheduled_service_code",
+                    "scheduled_service_name",
+                    "scheduled_service_uid",
                     "schedule_status",
                     "schedule_error",
                     "vcita_booking_uid",

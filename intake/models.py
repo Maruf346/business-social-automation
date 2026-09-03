@@ -197,6 +197,16 @@ class IntakeRequest(models.Model):
     appointment_time = models.CharField(max_length=5, blank=True, default="")
     scheduled_date = models.CharField(max_length=10, blank=True, default="")
     scheduled_time = models.CharField(max_length=5, blank=True, default="")
+    scheduled_service = models.ForeignKey(
+        "vcita.VcitaService",
+        on_delete=models.SET_NULL,
+        related_name="scheduled_intakes",
+        blank=True,
+        null=True,
+    )
+    scheduled_service_code = models.CharField(max_length=30, blank=True, default="")
+    scheduled_service_name = models.CharField(max_length=255, blank=True, default="")
+    scheduled_service_uid = models.CharField(max_length=255, blank=True, default="")
     vcita_booking_uid = models.CharField(max_length=255, blank=True, default="", db_index=True)
     schedule_status = models.CharField(
         max_length=30,
