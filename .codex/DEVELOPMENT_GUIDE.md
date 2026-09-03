@@ -160,6 +160,7 @@ GitHub Actions variables/secrets for EC2 deploy:
 - Repository secret `EC2_USER`.
 - Repository secret `EC2_SSH_KEY`.
 - Repository secret `EC2_SSH_PORT`, optional.
+- EC2 deploy copies `docker-compose.prod.yml` and `nginx/default.conf` over SCP, then pulls Docker Hub image; it does not run `git pull` on the server.
 
 ## Intake State App
 

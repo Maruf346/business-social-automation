@@ -167,7 +167,7 @@ Implemented deployment assets:
 - `docker-compose.prod.yml` runs backend image, Celery worker, Postgres, Redis, and nginx.
 - `nginx/default.conf` listens on port `80` and proxies all traffic to the backend container.
 - `.github/workflows/pipeline.yml` builds and pushes the Docker image to Docker Hub on pushes to `main`.
-- The EC2 deploy job is gated by `ENABLE_EC2_DEPLOY=true` and then pulls the latest image and restarts `docker-compose.prod.yml` over SSH.
+- The EC2 deploy job is gated by `ENABLE_EC2_DEPLOY=true`; it copies `docker-compose.prod.yml` and `nginx/default.conf` over SCP, then pulls the latest Docker Hub image and restarts `docker-compose.prod.yml` over SSH. EC2 does not need GitHub repo credentials for deploy.
 
 Media uploads are prepared for S3 through `USE_S3=True` and AWS S3 env vars. Local media remains the default when S3 is disabled.
 

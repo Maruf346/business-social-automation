@@ -15,8 +15,8 @@ Runtime plan:
 
 - GitHub Actions builds the backend Docker image.
 - The image is pushed to Docker Hub.
-- EC2 pulls the latest image.
-- Backend repo lives in `/opt/tattoo-hysteria-backend`.
+- EC2 receives deployment files from GitHub Actions over SCP, then pulls the latest image from Docker Hub.
+- Backend deploy directory lives in `/opt/tattoo-hysteria-backend`; it does not need to be a Git clone for CI/CD.
 - AI repo lives separately in `/opt/tattoo-hysteria-ai`.
 - `docker-compose.prod.yml` runs backend, Celery worker, Postgres, Redis, and nginx.
 - nginx listens on port `80` and proxies to gunicorn on port `8007`.
