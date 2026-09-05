@@ -30,6 +30,8 @@ services:
     depends_on:
       - db
       - redis
+    volumes:
+      - ./secrets:/app/secrets:ro
     expose:
       - "8007"
     networks:
@@ -49,6 +51,8 @@ services:
       - db
       - redis
       - backend
+    volumes:
+      - ./secrets:/app/secrets:ro
     networks:
       - tattoo_hysteria_net
     restart: unless-stopped

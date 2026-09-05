@@ -41,6 +41,7 @@ INSTALLED_APPS = [
 
     # custom app
     'account', 'core.apps.CoreConfig', 'lead', 'intake', 'vcita.apps.VcitaConfig',
+    'google_calendar.apps.GoogleCalendarConfig',
 ]
 
 if env_bool("USE_S3", False):
@@ -308,6 +309,16 @@ TELEGRAM_REVIEW_CHAT_ID=os.getenv("TELEGRAM_REVIEW_CHAT_ID", "")
 # =================AI Service Config================================
 # ==========================================================================================
 
+
+# ==========================================================================================
+# =================Google Calendar Config================================
+GOOGLE_CALENDAR = {
+    "SERVICE_ACCOUNT_FILE": os.getenv("GOOGLE_SERVICE_ACCOUNT_FILE", ""),
+    "SERVICE_ACCOUNT_JSON": os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON", ""),
+    "SCOPES": env_list("GOOGLE_CALENDAR_SCOPES", "https://www.googleapis.com/auth/calendar"),
+}
+# =================Google Calendar Config================================
+# ==========================================================================================
 
 # ==========================================================================================
 # =================Logging Config================================

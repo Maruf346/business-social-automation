@@ -1,6 +1,6 @@
 # Project Context
 
-Last reviewed: 2026-08-27
+Last reviewed: 2026-09-05
 
 ## Product Goal
 
@@ -29,7 +29,8 @@ This repository does not own the AI implementation itself. An AI engineer is bui
 - Database: SQLite by default for local direct `runserver`; Postgres is supported through `DATABASE_URL` or `POSTGRES_*` env vars and is used by Docker Compose.
 - Deployment: Docker image build, production compose, nginx reverse proxy, Redis service, Celery worker service, and optional S3 media storage are now scaffolded.
 - External APIs: Meta WhatsApp Graph API, Microsoft Graph API, Telegram Bot API, external AI API.
-- vCita/inTandem integration: Phase 1 scaffold exists for account token storage, webhook capture, and Bearer-token API smoke checks.
+- vCita/inTandem integration: account token storage, webhook capture, service-code mapping, booking create/update, availability checks, and basic payment/status sync exist.
+- Google Calendar integration: service-account based calendar mappings, free/busy conflict checks, and confirmed appointment event sync are scaffolded.
 
 Important mismatch: the Milestone 2 note mentions FastAPI, LangChain/LangGraph, PostgreSQL, and AWS. The current repo is Django/DRF/Celery/SQLite. Prefer evolving this Django backend unless a rewrite is explicitly approved.
 
@@ -116,6 +117,27 @@ Key flows:
 - Low-risk AI result sends client auto-reply.
 - High-risk AI result sends waiting message to client and Telegram summary to the team.
 - Client outbound attempts are audited through `OutboundAction` records.
+
+### `google_calendar`
+
+Google Calendar availability and event-sync layer.
+
+Key models:
+
+- `GoogleCalendarConfig`: Admin panel mapping for a Google calendar. Stores name, type (`pending`, `artist`, `shared_vcita`), optional artist link, calendar ID, timezone, and active flag.
+- `GoogleCalendarEvent`: audit/sync record for Google events created or updated by the backend.
+
+Key code:
+
+- `GoogleCalendarService`: loads service-account credentials from env/file, runs free/busy checks, creates or updates confirmed appointment events, and records sync failures.
+
+Current behavior:
+
+- vCita scheduling checks active artist, pending, and shared-vCita Google calendars before creating/updating the vCita booking.
+- If Google Calendar has a conflict, scheduling stops before vCita is modified and Telegram receives the error.
+- After vCita scheduling succeeds, the backend creates or updates confirmed appointment events in the assigned artist calendar and optional shared vCita calendar.
+- If Google event sync fails after vCita succeeds, the vCita booking remains scheduled and the Telegram group receives a Google Calendar warning.
+- Google Calendar credentials are not stored in the Admin panel; the server uses `GOOGLE_SERVICE_ACCOUNT_FILE` or `GOOGLE_SERVICE_ACCOUNT_JSON`.
 
 ### `vcita`
 
@@ -241,7 +263,7 @@ Artist assignment rules:
 - Assignment applies to the active `IntakeRequest`, not permanently to the whole lead.
 - After assignment, future client messages for that intake route to the assigned artist's private Telegram chat.
 - Assigned artist replies are sent automatically to the client through the original channel.
-- Successful vCita scheduling notifies the shared Telegram group, the assigned artist privately, and the client through the original channel.
+- Successful vCita scheduling notifies the shared Telegram group, the assigned artist privately, and the client through the original channel. If Google Calendar mappings are active, scheduling also checks mapped calendars before vCita and syncs confirmed events after vCita.
 - Artist private replies should support text and media/files.
 - Current implementation supports Telegram text/photo/document private replies. WhatsApp receives media through Meta link sends; Outlook receives media as links in the email reply.
 

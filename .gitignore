@@ -200,3 +200,5 @@ cython_debug/
 structure.json
 docs/
 .env.production
+secrets/
+google-service-account*.json

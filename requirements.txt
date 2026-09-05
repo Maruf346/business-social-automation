@@ -21,6 +21,8 @@ dj-database-url==3.0.1
 djangorestframework==3.17.1
 djangorestframework_simplejwt==5.5.1
 drf-spectacular==0.30.0
+google-api-python-client==2.179.0
+google-auth==2.40.3
 gunicorn==23.0.0
 idna==3.18
 inflection==0.5.1

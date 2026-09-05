@@ -1,6 +1,6 @@
 # Milestone 2 Plan
 
-Last reviewed: 2026-08-26
+Last reviewed: 2026-09-05
 
 ## Milestone 2 Goal
 
@@ -272,7 +272,7 @@ Deliverable:
 Current product direction:
 
 - Use vCita as the booking/calendar system.
-- Google Calendar integration is not needed if vCita covers booking, availability, reschedule/cancel, and payment/deposit workflows.
+- vCita remains the primary booking system. Google Calendar is now used as a separate availability/sync layer for pending holds, artist calendars, and optional shared vCita visibility.
 
 Google Calendar:
 
@@ -280,7 +280,7 @@ Google Calendar:
 - Check availability before booking confirmation.
 - Prevent double booking.
 - Create/update calendar events after approval.
-- Deferred while vCita is the chosen calendar/booking path.
+- Initial backend scaffold implemented on 2026-09-05 with `google_calendar` app, Admin panel mappings, service-account configuration, free/busy conflict checks, and confirmed appointment event sync. Pending unpaid hold workflow is still planned.
 
 vCita:
 
@@ -309,6 +309,13 @@ Phase 3 implemented initially on 2026-08-27:
 - Scheduling requires assigned artist and `ArtistProfile.vcita_staff_uid`.
 - Uses `VcitaAccount.business_uid`, `default_timezone`, and an active `VcitaService` mapping for the selected service code.
 - Live vCita token/payload verification remains before relying on this in production.
+
+Phase 3 extended on 2026-09-05:
+
+- Added Google Calendar conflict checks before vCita booking writes when active calendars are mapped.
+- Added confirmed appointment event sync after successful vCita scheduling.
+- Added Telegram warning visibility when Google Calendar sync fails after vCita succeeds.
+- Added Admin panel calendar mapping and sync audit records.
 
 Phase 4 partially started on 2026-08-27:
 

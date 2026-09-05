@@ -7,6 +7,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from django.db import transaction
 
+from google_calendar.services import GoogleCalendarError, GoogleCalendarService
 from intake.models import IntakeRequest, PaymentStatus, ScheduleStatus
 from lead.models import Lead
 
@@ -31,6 +32,9 @@ class VcitaScheduleResult:
     booking_uid: str
     raw_response: dict[str, Any]
     was_reschedule: bool
+    google_checked_calendar_ids: list[str]
+    google_synced_event_ids: list[str]
+    google_sync_warnings: list[str]
 
 
 class VcitaSchedulingService:
@@ -80,6 +84,16 @@ class VcitaSchedulingService:
             start_local=start_local,
             exclude_booking_uid=intake.vcita_booking_uid if was_reschedule else "",
         )
+        google_calendar = GoogleCalendarService()
+        try:
+            google_checked_calendar_ids = google_calendar.preflight_confirmed_schedule(
+                intake=intake,
+                start_at=start_local,
+                duration_minutes=self.DEFAULT_DURATION_MINUTES,
+            )
+        except GoogleCalendarError as exc:
+            self._mark_schedule_failed(intake, str(exc))
+            raise VcitaSchedulingError(str(exc)) from exc
 
         payload = self._build_booking_payload(
             intake=intake,
@@ -138,6 +152,14 @@ class VcitaSchedulingService:
                 ]
             )
 
+        google_sync = google_calendar.sync_confirmed_schedule(
+            intake=intake,
+            start_at=start_local,
+            service_code=service.code,
+            service_name=service.name,
+            duration_minutes=self.DEFAULT_DURATION_MINUTES,
+        )
+
         return VcitaScheduleResult(
             intake=intake,
             account=account,
@@ -147,6 +169,9 @@ class VcitaSchedulingService:
             booking_uid=booking_uid,
             raw_response=response,
             was_reschedule=was_reschedule,
+            google_checked_calendar_ids=google_checked_calendar_ids,
+            google_synced_event_ids=google_sync.synced_event_ids,
+            google_sync_warnings=google_sync.warnings,
         )
 
     def _get_service(self, account: VcitaAccount, service_code: str) -> VcitaService:

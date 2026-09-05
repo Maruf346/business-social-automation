@@ -580,7 +580,7 @@ class TelegramWorkflowService:
             action=HumanDecisionAction.SCHEDULE,
             note=(
                 f"Scheduled {result.service.code} for {result.requested_date} {result.requested_time}. "
-                f"vCita booking: {result.booking_uid}"
+                f"vCita booking: {result.booking_uid}" + self._format_google_warning_note(result.google_sync_warnings)
             ),
             telegram_chat_id=chat_id,
             telegram_message_id=message_id,
@@ -985,6 +985,18 @@ class TelegramWorkflowService:
         return decision.note.strip().replace("\n", " ")[:120]
 
     @staticmethod
+    def _format_google_warning_note(warnings: list[str]) -> str:
+        if not warnings:
+            return ""
+        return "\nGoogle Calendar warning: " + " | ".join(warnings)
+
+    @staticmethod
+    def _format_google_warning_text(warnings: list[str]) -> str:
+        if not warnings:
+            return ""
+        return "\n\nGoogle Calendar warning:\n" + escape("\n".join(warnings))
+
+    @staticmethod
     def _format_schedule_group_confirmation(result: VcitaScheduleResult) -> str:
         action = "rescheduled" if result.was_reschedule else "scheduled"
         return (
@@ -992,7 +1004,7 @@ class TelegramWorkflowService:
             f"When: {escape(result.requested_date)} at {escape(result.requested_time)}\n"
             f"Service: {escape(result.service.code)} - {escape(result.service.name)}\n"
             f"Artist: {escape(result.intake.assigned_artist.name if result.intake.assigned_artist else 'Unassigned')}\n"
-            f"vCita booking ID: <code>{escape(result.booking_uid)}</code>"
+            f"vCita booking ID: <code>{escape(result.booking_uid)}</code>" + TelegramWorkflowService._format_google_warning_text(result.google_sync_warnings)
         )
 
     @staticmethod

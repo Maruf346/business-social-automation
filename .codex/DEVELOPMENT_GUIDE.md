@@ -1,6 +1,6 @@
 # Development Guide
 
-Last reviewed: 2026-08-26
+Last reviewed: 2026-09-05
 
 ## Local Environment
 
@@ -145,6 +145,9 @@ Current important variables:
 - `GUNICORN_TIMEOUT`
 - `CELERY_WORKER_CONCURRENCY`
 - `CELERY_LOG_LEVEL`
+- `GOOGLE_SERVICE_ACCOUNT_FILE`
+- `GOOGLE_SERVICE_ACCOUNT_JSON`
+- `GOOGLE_CALENDAR_SCOPES`
 
 GitHub Actions variables/secrets for Docker Hub:
 
@@ -223,7 +226,7 @@ Scheduling:
 - Hoss schedules manually with `/schedule REQUEST_ID SERVICE_CODE YYYY-MM-DD HH:MM`, for example `/schedule 12 OCH 2026-09-04 14:30`.
 - Scheduling requires the intake to be assigned to an artist first.
 - If the Schedule button is pressed, Telegram shows the available service codes and asks Hoss to run the full `/schedule` command. If scheduling is attempted before assignment, Telegram tells Hoss to assign an artist first.
-- Successful scheduling creates or updates the vCita booking using the selected `VcitaService`, stores `vcita_booking_uid` plus service code/name/UID snapshot, notifies the group, sends the client a scheduling message through the original channel, and notifies the assigned artist privately.
+- Successful scheduling creates or updates the vCita booking using the selected `VcitaService`, stores `vcita_booking_uid` plus service code/name/UID snapshot, notifies the group, sends the client a scheduling message through the original channel, and notifies the assigned artist privately. If active Google Calendar mappings exist, the backend checks conflicts first and syncs confirmed Google events after vCita succeeds.
 - vCita client creation sends a flat payload with explicit `first_name` and `last_name`; do not wrap it in `{"client": ...}` because vCita rejects that shape as a blank first name. When the lead only has email/phone, fallback names are generated as `Tattoo Lead REQUEST_ID`.
 - vCita client lookup uses `/platform/v1/clients` with `search_by=email` or `search_by=phone` before creating a new client.
 - Fake/admin-created intakes with `source=other` can test Telegram/vCita flow, but client notification will report `Unsupported intake source: other`.
@@ -244,6 +247,44 @@ After vCita/lead/intake model changes:
 
 ```powershell
 .\.venv\Scripts\python.exe manage.py makemigrations lead intake vcita
+.\.venv\Scripts\python.exe manage.py migrate
+```
+
+## Google Calendar App
+
+The `google_calendar` app handles Google Calendar mappings, free/busy checks, and confirmed appointment event sync around the vCita scheduling flow.
+
+Server setup:
+
+1. Enable Google Calendar API in the Google Cloud project.
+2. Create a service account and JSON key.
+3. Put the JSON key on production at `./secrets/google-service-account.json` beside `docker-compose.prod.yml`.
+4. Keep `GOOGLE_SERVICE_ACCOUNT_FILE=/app/secrets/google-service-account.json` in production `.env`.
+5. Share each Google Calendar with the service account email using `Make changes to events`.
+
+Admin panel setup:
+
+1. Add one `GoogleCalendarConfig` row per calendar.
+2. Use `calendar_type=pending` for the Pending Appointments calendar.
+3. Use `calendar_type=artist` and select the matching artist for Lana/Sandra/Sliva calendars.
+4. Use `calendar_type=shared_vcita` only if the studio wants a shared Google copy of vCita-side appointments.
+5. Set `calendar_id` from Google Calendar settings -> Integrate calendar -> Calendar ID.
+6. Set `timezone=Europe/Amsterdam` unless the studio changes timezone.
+7. Set `is_active=True` only after the service account has been shared into that calendar.
+8. Use the Admin panel action `Test selected Google Calendar access` to verify free/busy access.
+
+Scheduling behavior:
+
+- `/schedule REQUEST_ID SERVICE_CODE YYYY-MM-DD HH:MM` still schedules through vCita first-class.
+- Before the vCita API write, active Google calendars are checked for conflicts: assigned artist calendar, pending calendar, and optional shared vCita calendar.
+- If a conflict is found, scheduling stops and Telegram shows a clear message.
+- After vCita succeeds, confirmed Google events are created/updated on the assigned artist calendar and optional shared vCita calendar.
+- If Google sync fails after vCita succeeds, Telegram shows a Google Calendar warning and the failure is stored in `GoogleCalendarEvent`.
+
+After Google Calendar model changes:
+
+```powershell
+.\.venv\Scripts\python.exe manage.py makemigrations google_calendar
 .\.venv\Scripts\python.exe manage.py migrate
 ```
 
