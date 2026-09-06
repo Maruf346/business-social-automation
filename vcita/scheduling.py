@@ -71,25 +71,22 @@ class VcitaSchedulingService:
 
         if not intake.assigned_artist_id:
             raise VcitaSchedulingError("Please assign an artist first, then schedule this request.")
-        if not intake.assigned_artist.vcita_staff_uid:
-            raise VcitaSchedulingError(
-                f"{intake.assigned_artist.name} is missing a vCita staff ID. Add it in the Admin panel first."
-            )
         if not account.business_uid:
             raise VcitaSchedulingError("vCita business UID is missing. Sync user info or add it in the Admin panel.")
 
         service = self._get_service(account, service_code)
+        booking_staff_uid = self._resolve_booking_staff_uid(intake, account, service)
         vcita_client_uid = self._get_or_create_client_uid(
             intake.lead,
             account,
             client,
-            staff_uid=intake.assigned_artist.vcita_staff_uid,
+            staff_uid=booking_staff_uid,
         )
         was_reschedule = bool(intake.vcita_booking_uid)
         self._check_availability(
             client=client,
             service=service,
-            staff_uid=intake.assigned_artist.vcita_staff_uid,
+            staff_uid=booking_staff_uid,
             start_local=start_local,
             exclude_booking_uid=intake.vcita_booking_uid if was_reschedule else "",
         )
@@ -109,7 +106,7 @@ class VcitaSchedulingService:
             account=account,
             service=service,
             client_uid=vcita_client_uid,
-            staff_uid=intake.assigned_artist.vcita_staff_uid,
+            staff_uid=booking_staff_uid,
             start_local=start_local,
         )
 
@@ -345,6 +342,23 @@ class VcitaSchedulingService:
         lines.append("Example: /schedule 12 OCH 2026-09-04 14:30")
         return "\n".join(lines)
 
+
+    @staticmethod
+    def _resolve_booking_staff_uid(intake: IntakeRequest, account: VcitaAccount, service: VcitaService) -> str:
+        if service.use_external_booking_staff:
+            staff_uid = (account.external_booking_staff_uid or "").strip()
+            if not staff_uid:
+                raise VcitaSchedulingError(
+                    f"Service {service.code} uses external artist scheduling, but the neutral vCita booking staff UID is missing. Add it in the Admin panel first."
+                )
+            return staff_uid
+
+        staff_uid = (intake.assigned_artist.vcita_staff_uid or "").strip()
+        if not staff_uid:
+            raise VcitaSchedulingError(
+                f"{intake.assigned_artist.name} is missing a vCita staff ID. Add it in the Admin panel first, or mark service {service.code} to use the external booking staff UID."
+            )
+        return staff_uid
     def _get_or_create_client_uid(
         self,
         lead: Lead,
@@ -463,6 +477,8 @@ class VcitaSchedulingService:
         note_parts = [
             f"Request #{intake.pk}",
             f"Service: {service.code} - {service.name}",
+            f"Assigned artist: {intake.assigned_artist.name if intake.assigned_artist else 'Unassigned'}",
+            f"vCita booking staff mode: {'external/shared' if service.use_external_booking_staff else 'assigned artist'}",
             f"Idea: {intake.tattoo_idea or 'Unclear'}",
         ]
         price = intake.approved_price or intake.ai_suggested_price

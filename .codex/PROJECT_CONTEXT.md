@@ -147,14 +147,14 @@ vCita integration foundation.
 
 Key models:
 
-- `VcitaAccount`: admin-managed API token, API base URL, business UID/name, legacy default service UID, default timezone, and optional webhook secret.
-- `VcitaService`: admin-managed service-code mapping from short Telegram code, such as `OCH`, to vCita service UID and display name.
+- `VcitaAccount`: admin-managed API token, API base URL, business UID/name, legacy default service UID, neutral external booking staff UID, default timezone, and optional webhook secret.
+- `VcitaService`: admin-managed service-code mapping from short Telegram code, such as `OCH`, to vCita service UID/display name, with an optional external-booking-staff mode for TA/TC-style services.
 - `VcitaWebhookEvent`: raw webhook event storage, including headers, payload, body, event/entity hints, external id, status, and processing error.
 
 Key code:
 
 - `VcitaAPIClient`: Bearer-token client for vCita userinfo, staff/services discovery, webhook subscription/listing, client lookup/creation, availability checks, and booking create/update calls.
-- `VcitaSchedulingService`: creates pending Google Calendar holds, creates or updates vCita bookings for assigned intakes, releases pending holds only after final booking and confirmed-calendar sync succeed, and stores vCita booking IDs back on `IntakeRequest`.
+- `VcitaSchedulingService`: creates pending Google Calendar holds, creates or updates vCita bookings for assigned intakes, resolves assigned-vs-neutral vCita staff ownership per service, releases pending holds only after final booking and confirmed-calendar sync succeed, and stores vCita booking IDs back on `IntakeRequest`.
 - `VcitaWebhook`: unauthenticated webhook receiver at `/api/v1/webhook/vcita/`.
 - `vcita_smoke_test`: management command that calls a simple vCita endpoint using the active account token.
 
@@ -164,7 +164,8 @@ Current behavior:
 - vCita webhook POST stores raw payloads safely and returns `EVENT_RECEIVED`.
 - If a webhook payload contains a booking/appointment/meeting ID matching an intake, payment and booking status hints update `IntakeRequest` and notify Telegram.
 - Unknown vCita webhook payloads are stored only; live payload shapes still need verification.
-- The API token is stored in Django admin, not environment variables.
+- The API token is stored in the Admin panel, not environment variables.
+- TA/TC external artist services should be marked to use the neutral external booking staff UID. Lana/Sandra/Sliva do not need vCita staff UIDs; their real assignment is tracked in the backend and synced to their Google Calendar. vCita notes include the actual assigned artist name to avoid confusion.
 
 ## Current Routes
 

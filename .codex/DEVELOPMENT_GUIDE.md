@@ -207,7 +207,9 @@ Admin setup:
 6. Run the Admin panel action `Sync vCita business info from token`; this fills `business_uid` and `business_name` from `/oauth/userinfo`.
 7. Run `Show active vCita staff IDs`; copy each artist's vCita staff UID into their `ArtistProfile.vcita_staff_uid`.
 8. Run `Show vCita service IDs`; create `VcitaService` rows for each schedulable option with a short code, display name, and vCita service UID.
-9. Keep `default_timezone=Europe/Amsterdam` unless the studio changes scheduling timezone.
+9. For TA/TC or other external artist services, create/select a neutral vCita staff/resource such as `External Artist Bookings`, then store its UID in `VcitaAccount.external_booking_staff_uid`.
+10. Mark TA/TC `VcitaService` rows with `use_external_booking_staff=True`. Leave Lana/Sandra/Sliva `ArtistProfile.vcita_staff_uid` blank unless they become real vCita staff later.
+11. Keep `default_timezone=Europe/Amsterdam` unless the studio changes scheduling timezone.
 
 Webhook URL:
 

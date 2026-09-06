@@ -11,13 +11,14 @@ class VcitaAccountAdmin(admin.ModelAdmin):
         "name",
         "business_uid",
         "default_service_uid",
+        "external_booking_staff_uid",
         "default_timezone",
         "api_base_url",
         "is_active",
         "updated_at",
     )
     list_filter = ("is_active", "created_at", "updated_at")
-    search_fields = ("name", "business_uid", "business_name", "default_service_uid", "api_base_url", "notes")
+    search_fields = ("name", "business_uid", "business_name", "default_service_uid", "external_booking_staff_uid", "api_base_url", "notes")
     actions = ("test_api_token", "sync_userinfo", "show_active_staff", "show_services")
     fieldsets = (
         (
@@ -30,6 +31,7 @@ class VcitaAccountAdmin(admin.ModelAdmin):
                     "business_uid",
                     "business_name",
                     "default_service_uid",
+                    "external_booking_staff_uid",
                     "default_timezone",
                     "webhook_secret",
                 )
@@ -126,8 +128,8 @@ class VcitaAccountAdmin(admin.ModelAdmin):
 
 @admin.register(VcitaService)
 class VcitaServiceAdmin(admin.ModelAdmin):
-    list_display = ("id", "code", "name", "vcita_service_uid", "account", "is_active", "updated_at")
-    list_filter = ("is_active", "account", "created_at", "updated_at")
+    list_display = ("id", "code", "name", "vcita_service_uid", "use_external_booking_staff", "account", "is_active", "updated_at")
+    list_filter = ("is_active", "use_external_booking_staff", "account", "created_at", "updated_at")
     search_fields = ("code", "name", "vcita_service_uid", "notes", "account__name")
     fieldsets = (
         (
@@ -138,6 +140,7 @@ class VcitaServiceAdmin(admin.ModelAdmin):
                     "code",
                     "name",
                     "vcita_service_uid",
+                    "use_external_booking_staff",
                     "is_active",
                 )
             },
