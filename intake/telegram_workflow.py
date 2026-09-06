@@ -11,6 +11,8 @@ from core.exceptions import MetaAPIError, OutlookAPIError
 from core.services.telegram_bot_service import TelegramBotService
 from intake.models import (
     ArtistProfile,
+    ExternalArtistOffer,
+    ExternalArtistOfferStatus,
     HumanDecision,
     HumanDecisionAction,
     IntakeRequest,
@@ -99,9 +101,6 @@ class TelegramWorkflowService:
         callback_id = callback.get("id", "")
         from_user = callback.get("from", {})
         actor = self._get_artist_by_user(from_user.get("id"))
-        if not actor or not actor.can_approve:
-            self.telegram.answer_callback_query(callback_id, "Only Hoss can do this.")
-            return {"ok": False, "reason": "unauthorized"}
 
         data = callback.get("data", "")
         parsed = self._parse_callback_data(data)
@@ -114,6 +113,23 @@ class TelegramWorkflowService:
         message = callback.get("message", {})
         chat_id = message.get("chat", {}).get("id")
         message_id = message.get("message_id")
+
+        if action in ("external_accept", "external_decline"):
+            return self._handle_external_artist_offer_callback(
+                intake=intake,
+                actor=actor,
+                offer_id=int(parsed["offer_id"]),
+                decision=action,
+                callback_id=callback_id,
+                chat_id=chat_id,
+                message_id=message_id,
+                original_text=message.get("text") or "",
+                raw_update=raw_update,
+            )
+
+        if not actor or not actor.can_approve:
+            self.telegram.answer_callback_query(callback_id, "Only Hoss/Nina can do this.")
+            return {"ok": False, "reason": "unauthorized"}
 
         if action == "approve":
             return self._approve_ai_reply(intake, actor, callback_id, chat_id, message_id, raw_update)
@@ -588,6 +604,9 @@ class TelegramWorkflowService:
         message_id: int | None,
         raw_update: dict[str, Any],
     ) -> dict[str, Any]:
+        if not artist.can_approve:
+            return self._offer_external_artist(intake, actor, artist, callback_id, chat_id, message_id, raw_update)
+
         intake.assigned_artist = artist
         intake.status = IntakeStatus.ASSIGNED
         intake.save(update_fields=["assigned_artist", "status", "updated_at"])
@@ -617,6 +636,207 @@ class TelegramWorkflowService:
             )
         return {"ok": True, "action": "assign", "intake_id": intake.pk, "artist_id": artist.pk}
 
+    def _offer_external_artist(
+        self,
+        intake: IntakeRequest,
+        actor: ArtistProfile,
+        artist: ArtistProfile,
+        callback_id: str,
+        chat_id: int | None,
+        message_id: int | None,
+        raw_update: dict[str, Any],
+    ) -> dict[str, Any]:
+        if not artist.telegram_chat_id:
+            self.telegram.answer_callback_query(callback_id, f"{artist.name} has no private chat ID yet.")
+            self.telegram.send_message(
+                chat_id=chat_id,
+                text=(
+                    f"Request #{intake.pk}: could not offer this request to {escape(artist.name)}.\n"
+                    "Reason: the artist needs to start the bot and run /whoami first."
+                ),
+            )
+            return {"ok": False, "reason": "missing_artist_chat", "intake_id": intake.pk, "artist_id": artist.pk}
+
+        existing_offer = ExternalArtistOffer.objects.filter(
+            intake=intake,
+            artist=artist,
+            status=ExternalArtistOfferStatus.OFFERED,
+        ).first()
+        if existing_offer:
+            self.telegram.answer_callback_query(callback_id, f"{artist.name} already has an active offer.")
+            self.telegram.send_message(
+                chat_id=chat_id,
+                text=f"Request #{intake.pk} is already offered to {escape(artist.name)}. Waiting for Accept or Decline.",
+            )
+            return {"ok": False, "reason": "offer_already_active", "intake_id": intake.pk, "artist_id": artist.pk}
+
+        safe_brief = self._format_external_artist_offer_text(intake, artist)
+        offer = ExternalArtistOffer.objects.create(
+            intake=intake,
+            artist=artist,
+            offered_by=actor,
+            safe_brief=safe_brief,
+            raw_update=raw_update,
+        )
+        response = self.telegram.send_message(
+            chat_id=artist.telegram_chat_id,
+            text=safe_brief,
+            reply_markup=self._build_external_artist_offer_keyboard(intake, offer),
+        )
+        telegram_message = response.get("result", {})
+        offer.telegram_chat_id = telegram_message.get("chat", {}).get("id")
+        offer.telegram_message_id = telegram_message.get("message_id")
+        offer.save(update_fields=["telegram_chat_id", "telegram_message_id", "updated_at"])
+        self._store_message_link(
+            intake=intake,
+            purpose=TelegramMessagePurpose.EXTERNAL_ARTIST_OFFER,
+            response=response,
+            artist=artist,
+        )
+        HumanDecision.objects.create(
+            intake=intake,
+            actor=actor,
+            assigned_artist=artist,
+            action=HumanDecisionAction.EXTERNAL_ARTIST_OFFER,
+            note=f"Offer sent to {artist.name}.",
+            telegram_chat_id=chat_id,
+            telegram_message_id=message_id,
+            telegram_callback_id=callback_id,
+            raw_update=raw_update,
+        )
+        self.telegram.answer_callback_query(callback_id, f"Offer sent to {artist.name}.")
+        self.telegram.send_message(
+            chat_id=chat_id,
+            text=f"Request #{intake.pk} offered to {escape(artist.name)}. Waiting for Accept or Decline.",
+        )
+        return {"ok": True, "action": "external_artist_offer", "intake_id": intake.pk, "artist_id": artist.pk}
+
+    @transaction.atomic
+    def _handle_external_artist_offer_callback(
+        self,
+        intake: IntakeRequest,
+        actor: ArtistProfile | None,
+        offer_id: int,
+        decision: str,
+        callback_id: str,
+        chat_id: int | None,
+        message_id: int | None,
+        original_text: str,
+        raw_update: dict[str, Any],
+    ) -> dict[str, Any]:
+        if not actor:
+            self.telegram.answer_callback_query(callback_id, "Your Telegram user is not registered as an artist.", show_alert=True)
+            return {"ok": False, "reason": "unknown_artist", "offer_id": offer_id}
+
+        offer = ExternalArtistOffer.objects.select_for_update().select_related("intake", "artist").get(pk=offer_id)
+        if offer.intake_id != intake.pk:
+            self.telegram.answer_callback_query(callback_id, "This offer does not match the request.", show_alert=True)
+            return {"ok": False, "reason": "offer_intake_mismatch", "offer_id": offer_id}
+        if actor.pk != offer.artist_id:
+            self.telegram.answer_callback_query(callback_id, "Only the offered artist can respond to this.", show_alert=True)
+            return {"ok": False, "reason": "wrong_artist", "offer_id": offer_id}
+        if offer.intake.assigned_artist_id and offer.intake.assigned_artist_id != actor.pk:
+            self.telegram.answer_callback_query(callback_id, "This request is already assigned to another artist.", show_alert=True)
+            self._mark_external_offer_card_handled(chat_id, message_id, original_text, "Status: This request is already assigned to another artist.")
+            return {"ok": False, "reason": "intake_already_assigned", "offer_id": offer_id}
+        if offer.status != ExternalArtistOfferStatus.OFFERED:
+            self.telegram.answer_callback_query(callback_id, "This offer has already been handled.", show_alert=True)
+            self._mark_external_offer_card_handled(chat_id, message_id, original_text, f"Status: Already {offer.get_status_display()} by {offer.artist.name}.")
+            return {"ok": False, "reason": "offer_already_handled", "offer_id": offer_id}
+
+        if decision == "external_accept":
+            return self._accept_external_artist_offer(offer, actor, callback_id, chat_id, message_id, original_text, raw_update)
+        return self._decline_external_artist_offer(offer, actor, callback_id, chat_id, message_id, original_text, raw_update)
+
+    def _accept_external_artist_offer(
+        self,
+        offer: ExternalArtistOffer,
+        actor: ArtistProfile,
+        callback_id: str,
+        chat_id: int | None,
+        message_id: int | None,
+        original_text: str,
+        raw_update: dict[str, Any],
+    ) -> dict[str, Any]:
+        now = timezone.now()
+        intake = offer.intake
+        intake.assigned_artist = actor
+        intake.status = IntakeStatus.ASSIGNED
+        intake.save(update_fields=["assigned_artist", "status", "updated_at"])
+        offer.status = ExternalArtistOfferStatus.ACCEPTED
+        offer.responded_at = now
+        offer.client_contact_released_at = now
+        offer.raw_update = raw_update
+        offer.save(update_fields=["status", "responded_at", "client_contact_released_at", "raw_update", "updated_at"])
+        ExternalArtistOffer.objects.filter(
+            intake=intake,
+            status=ExternalArtistOfferStatus.OFFERED,
+        ).exclude(pk=offer.pk).update(status=ExternalArtistOfferStatus.CANCELLED, updated_at=now)
+        HumanDecision.objects.create(
+            intake=intake,
+            actor=actor,
+            assigned_artist=actor,
+            action=HumanDecisionAction.EXTERNAL_ARTIST_ACCEPT,
+            note=f"{actor.name} accepted the artist offer.",
+            telegram_chat_id=chat_id,
+            telegram_message_id=message_id,
+            telegram_callback_id=callback_id,
+            raw_update=raw_update,
+        )
+        self.telegram.answer_callback_query(callback_id, "Accepted.")
+        self._mark_external_offer_card_handled(chat_id, message_id, original_text, f"Status: Accepted by {actor.name}.")
+        self.telegram.send_message(chat_id=chat_id, text=self._format_external_artist_contact_text(intake, actor))
+        self.telegram.send_message(
+            text=f"Request #{intake.pk}: {escape(actor.name)} accepted. Client name/email released to the artist.",
+        )
+        client_message = (
+            f"Good news, {actor.name} has accepted your tattoo request. "
+            "They will contact you by email with the next steps."
+        )
+        self._send_client_reply_or_notify(
+            intake=intake,
+            text=client_message,
+            chat_id=None,
+            action_type=OutboundActionType.EXTERNAL_ARTIST_ACCEPTED,
+            actor=actor,
+            send_by=SEND_BY.AGENT,
+        )
+        return {"ok": True, "action": "external_artist_accept", "intake_id": intake.pk, "artist_id": actor.pk}
+
+    def _decline_external_artist_offer(
+        self,
+        offer: ExternalArtistOffer,
+        actor: ArtistProfile,
+        callback_id: str,
+        chat_id: int | None,
+        message_id: int | None,
+        original_text: str,
+        raw_update: dict[str, Any],
+    ) -> dict[str, Any]:
+        now = timezone.now()
+        intake = offer.intake
+        offer.status = ExternalArtistOfferStatus.DECLINED
+        offer.responded_at = now
+        offer.raw_update = raw_update
+        offer.save(update_fields=["status", "responded_at", "raw_update", "updated_at"])
+        HumanDecision.objects.create(
+            intake=intake,
+            actor=actor,
+            assigned_artist=actor,
+            action=HumanDecisionAction.EXTERNAL_ARTIST_DECLINE,
+            note=f"{actor.name} declined the artist offer.",
+            telegram_chat_id=chat_id,
+            telegram_message_id=message_id,
+            telegram_callback_id=callback_id,
+            raw_update=raw_update,
+        )
+        self.telegram.answer_callback_query(callback_id, "Declined.")
+        self._mark_external_offer_card_handled(chat_id, message_id, original_text, f"Status: Declined by {actor.name}.")
+        self.telegram.send_message(chat_id=chat_id, text=f"Request #{intake.pk}: you declined this request.")
+        self.telegram.send_message(
+            text=f"Request #{intake.pk}: {escape(actor.name)} declined. Please assign another artist or handle it manually.",
+        )
+        return {"ok": True, "action": "external_artist_decline", "intake_id": intake.pk, "artist_id": actor.pk}
     @transaction.atomic
     def _reject_intake(
         self,
@@ -972,6 +1192,104 @@ class TelegramWorkflowService:
         return media_items
 
 
+
+    def _build_external_artist_offer_keyboard(self, intake: IntakeRequest, offer: ExternalArtistOffer) -> dict[str, Any]:
+        return {
+            "inline_keyboard": [
+                [
+                    {
+                        "text": "Accept",
+                        "callback_data": f"{self.CALLBACK_PREFIX}:external_accept:{intake.pk}:{offer.pk}",
+                    },
+                    {
+                        "text": "Decline",
+                        "callback_data": f"{self.CALLBACK_PREFIX}:external_decline:{intake.pk}:{offer.pk}",
+                    },
+                ]
+            ]
+        }
+
+    def _format_external_artist_offer_text(self, intake: IntakeRequest, artist: ArtistProfile) -> str:
+        detail_lines = [
+            f"Idea: {escape(intake.tattoo_idea or 'Unclear')}",
+            f"Price: {escape(intake.approved_price or intake.ai_suggested_price or 'Not approved')}",
+        ]
+        if intake.placement:
+            detail_lines.append(f"Placement: {escape(intake.placement)}")
+        if intake.size_estimate_cm:
+            detail_lines.append(f"Size: {escape(intake.size_estimate_cm)}")
+        if intake.color_preference:
+            detail_lines.append(f"Color: {escape(intake.color_preference)}")
+        if intake.style_tags:
+            detail_lines.append(f"Style: {escape(', '.join(intake.style_tags))}")
+        if intake.appointment_date and intake.appointment_time:
+            detail_lines.append(f"Preferred schedule: {escape(intake.appointment_date)} at {escape(intake.appointment_time)}")
+        if intake.pending_hold_date and intake.pending_hold_time:
+            detail_lines.append(f"Pending hold: {escape(intake.pending_hold_date)} at {escape(intake.pending_hold_time)}")
+        media_lines = self._external_offer_media_lines(intake)
+        if media_lines:
+            detail_lines.extend(media_lines)
+        summary_section = ""
+        if intake.latest_summary:
+            summary_section = f"\n\n<b>Summary</b>\n{escape(intake.latest_summary)}"
+        return (
+            f"<b>Artist offer for Request #{intake.pk}</b>\n"
+            f"Artist: {escape(artist.name)}\n"
+            "Client contact is hidden until you accept.\n\n"
+            f"{chr(10).join(detail_lines)}"
+            f"{summary_section}\n\n"
+            "Please choose one option."
+        )
+
+    def _format_external_artist_contact_text(self, intake: IntakeRequest, artist: ArtistProfile) -> str:
+        lead = intake.lead
+        name = lead.name or "Not provided"
+        email = lead.email or "Not provided"
+        return (
+            f"<b>Request #{intake.pk}: client contact released</b>\n"
+            f"Client name: {escape(name)}\n"
+            f"Client email: {escape(email)}\n"
+            "Client phone is hidden.\n\n"
+            "You are now assigned to this request. Reply to future bot updates for this request, or use:\n"
+            f"<code>/reply {intake.pk} your message</code>"
+        )
+
+    def _external_offer_media_lines(self, intake: IntakeRequest) -> list[str]:
+        if not intake.last_incoming_message_id:
+            return []
+        lines = []
+        for media in intake.last_incoming_message.media_files.all()[:5]:
+            url = media.download_url
+            if not url and media.file:
+                try:
+                    url = media.file.url
+                except Exception:
+                    url = ""
+            if url:
+                label = media.file_name or media.media_type or "file"
+                lines.append(f"Reference: {escape(label)} - {escape(url)}")
+        return lines
+
+    def _mark_external_offer_card_handled(
+        self,
+        chat_id: int | None,
+        message_id: int | None,
+        original_text: str,
+        status_text: str,
+    ) -> None:
+        if not chat_id or not message_id:
+            return
+        text = escape(original_text.strip()) if original_text.strip() else "Artist offer handled."
+        if "Status:" not in original_text:
+            text = f"{text}\n\n<b>{escape(status_text)}</b>"
+        try:
+            self.telegram.edit_message_text(chat_id=chat_id, message_id=message_id, text=text, reply_markup=None)
+        except Exception:
+            logger.exception("Could not edit external artist offer card after decision.")
+            try:
+                self.telegram.edit_message_reply_markup(chat_id=chat_id, message_id=message_id, reply_markup=None)
+            except Exception:
+                logger.exception("Could not clear external artist offer buttons.")
     def _build_pending_hold_review_keyboard(self, intake: IntakeRequest) -> dict[str, Any]:
         return {
             "inline_keyboard": [
@@ -1353,4 +1671,8 @@ class TelegramWorkflowService:
             if len(parts) != 4 or not parts[3].isdigit():
                 return None
             parsed["artist_id"] = int(parts[3])
+        if action in ("external_accept", "external_decline"):
+            if len(parts) != 4 or not parts[3].isdigit():
+                return None
+            parsed["offer_id"] = int(parts[3])
         return parsed

@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from intake.models import AIAnalysis, ArtistProfile, HumanDecision, IntakeRequest, OutboundAction, TelegramMessageLink
+from intake.models import AIAnalysis, ArtistProfile, ExternalArtistOffer, HumanDecision, IntakeRequest, OutboundAction, TelegramMessageLink
 
 
 @admin.register(ArtistProfile)
@@ -321,6 +321,42 @@ class TelegramMessageLinkAdmin(admin.ModelAdmin):
     readonly_fields = ("raw_message", "created_at")
     ordering = ("-created_at",)
 
+
+
+@admin.register(ExternalArtistOffer)
+class ExternalArtistOfferAdmin(admin.ModelAdmin):
+    list_display = (
+        "id",
+        "intake",
+        "artist",
+        "offered_by",
+        "status",
+        "telegram_chat_id",
+        "telegram_message_id",
+        "client_contact_released_at",
+        "responded_at",
+        "created_at",
+    )
+    list_filter = ("status", "artist", "offered_by", "created_at", "responded_at")
+    search_fields = (
+        "intake__lead__name",
+        "intake__lead__phone_number",
+        "intake__lead__email",
+        "artist__name",
+        "safe_brief",
+    )
+    readonly_fields = (
+        "safe_brief",
+        "telegram_chat_id",
+        "telegram_message_id",
+        "client_contact_released_at",
+        "responded_at",
+        "raw_update",
+        "created_at",
+        "updated_at",
+    )
+    raw_id_fields = ("intake", "artist", "offered_by")
+    ordering = ("-created_at",)
 
 @admin.register(OutboundAction)
 class OutboundActionAdmin(admin.ModelAdmin):

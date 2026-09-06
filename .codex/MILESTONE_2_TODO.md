@@ -82,14 +82,15 @@ This checklist tracks what is left after the current vCita, Telegram, Outlook, W
 
 ## External Artist Flow
 
-- [ ] Add external artist offer states: offered, accepted, declined, expired.
-- [ ] Send external artist a safe brief first, including tattoo idea and images but no phone number.
-- [ ] Add accept/decline actions for external artists.
-- [ ] Release client name and email only after the external artist accepts.
-- [ ] Never release client phone number to external artists.
-- [ ] Notify the client that the artist accepted and will contact them by email.
-- [ ] Return declined or expired requests to Hoss/Nina for reassignment.
-- [ ] Log every external artist contact-release decision.
+- [x] Add external artist offer states: offered, accepted, declined, cancelled.
+- [x] Send external artist a safe brief first, including tattoo idea and reference links when available, but no client phone/email.
+- [x] Add `Accept`/`Decline` button actions for external artists.
+- [x] Release client name and email only after the external artist accepts.
+- [x] Never release client phone number to external artists.
+- [x] Notify the client that the artist accepted and will contact them by email.
+- [x] Return declined requests to Hoss/Nina for reassignment through group notification.
+- [ ] Add optional no-response/expiry handling for artist offers if Hoss wants a timeout later.
+- [x] Log every external artist offer, accept, decline, and contact-release decision.
 
 ## TA/TC External Artist Scheduling
 

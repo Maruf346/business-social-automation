@@ -110,7 +110,7 @@ Locked workflow decisions:
 - High-risk requests go to one shared Telegram group first.
 - Only Hoss can approve/reject/assign from the shared group.
 - Hoss is also assignable as an artist; if he assigns himself, the bot sends future updates to his private Telegram inbox.
-- Active artists are managed in Django admin. New active artists should appear as assignment options without code changes.
+- Active artists are managed in the Admin panel. New active artists should appear as assignment options without code changes.
 - Assignment applies only to the active `IntakeRequest`, not the lead forever.
 - Hoss approving the AI draft reply immediately sends that draft to the client through the original source channel.
 - Hoss can choose Edit Reply instead of approving the AI draft; the edited reply is then sent through group command `/reply REQUEST_ID message text`.
@@ -118,6 +118,7 @@ Locked workflow decisions:
 - Price updates do not send anything to the client automatically.
 - If Hoss approves without assigning an artist, the intake remains unassigned and future high-risk messages return to the shared group.
 - After an artist is assigned, future client messages for that intake are routed to the assigned artist's private Telegram chat.
+- Non-approver artists receive a private safe offer card first. They become assigned only after pressing `Accept`; pressing `Decline` notifies the group and leaves the request available for reassignment.
 - Assigned artist replies are sent automatically to the client, without another Hoss approval step.
 - Artist replies should support text plus images/files.
 
@@ -164,6 +165,7 @@ Implemented on 2026-08-22:
 - Added AI-proposed `date`/`time` persistence and Hoss-only service-code scheduling through `/schedule REQUEST_ID SERVICE_CODE YYYY-MM-DD HH:MM`; the Schedule button now gives service-code guidance.
 - Added vCita staff UID mapping on artists and scheduling/payment state storage on intakes.
 - Added Hoss-only `/logs` command for recent `HumanDecision` history with optional request ID and row limit.
+- Added external artist offer flow on 2026-09-06: assigning a non-approver artist sends a private safe brief with `Accept`/`Decline`, hides client contact until acceptance, removes buttons after response, logs decisions, notifies the group, assigns on acceptance, cancels competing offers, and notifies the client.
 
 Still needs live verification:
 

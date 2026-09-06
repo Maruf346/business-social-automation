@@ -35,6 +35,9 @@ class HumanDecisionAction(models.TextChoices):
     APPROVE_AI_REPLY = "approve_ai_reply", "Approve AI Reply"
     REJECT = "reject", "Reject"
     ASSIGN_ARTIST = "assign_artist", "Assign Artist"
+    EXTERNAL_ARTIST_OFFER = "external_artist_offer", "External Artist Offer"
+    EXTERNAL_ARTIST_ACCEPT = "external_artist_accept", "External Artist Accept"
+    EXTERNAL_ARTIST_DECLINE = "external_artist_decline", "External Artist Decline"
     EDIT_REPLY = "edit_reply", "Edit Reply"
     EDIT_PRICE = "edit_price", "Edit Price"
     HOLD_APPOINTMENT = "hold_appointment", "Hold Appointment"
@@ -48,6 +51,7 @@ class HumanDecisionAction(models.TextChoices):
 class TelegramMessagePurpose(models.TextChoices):
     GROUP_REVIEW = "group_review", "Group Review"
     ARTIST_ASSIGNMENT = "artist_assignment", "Artist Assignment"
+    EXTERNAL_ARTIST_OFFER = "external_artist_offer", "External Artist Offer"
     CLIENT_UPDATE = "client_update", "Client Update"
     BOT_INFO = "bot_info", "Bot Info"
 
@@ -58,6 +62,7 @@ class OutboundActionType(models.TextChoices):
     HOSS_APPROVED_REPLY = "hoss_approved_reply", "Hoss Approved Reply"
     HOSS_EDITED_REPLY = "hoss_edited_reply", "Hoss Edited Reply"
     SCHEDULE_NOTIFICATION = "schedule_notification", "Schedule Notification"
+    EXTERNAL_ARTIST_ACCEPTED = "external_artist_accepted", "External Artist Accepted"
     ARTIST_REPLY = "artist_reply", "Artist Reply"
 
 
@@ -91,6 +96,13 @@ class PendingHoldStatus(models.TextChoices):
     FINALIZED = "finalized", "Finalized"
     RELEASED = "released", "Released"
     FAILED = "failed", "Failed"
+
+
+class ExternalArtistOfferStatus(models.TextChoices):
+    OFFERED = "offered", "Offered"
+    ACCEPTED = "accepted", "Accepted"
+    DECLINED = "declined", "Declined"
+    CANCELLED = "cancelled", "Cancelled"
 
 
 class ArtistProfile(models.Model):
@@ -406,6 +418,46 @@ class TelegramMessageLink(models.Model):
     def __str__(self):
         return f"{self.purpose} message {self.telegram_message_id} for intake #{self.intake_id}"
 
+
+class ExternalArtistOffer(models.Model):
+    intake = models.ForeignKey(IntakeRequest, on_delete=models.CASCADE, related_name="external_artist_offers")
+    artist = models.ForeignKey(
+        ArtistProfile,
+        on_delete=models.CASCADE,
+        related_name="external_artist_offers",
+    )
+    offered_by = models.ForeignKey(
+        ArtistProfile,
+        on_delete=models.SET_NULL,
+        related_name="external_artist_offers_made",
+        blank=True,
+        null=True,
+    )
+    status = models.CharField(
+        max_length=20,
+        choices=ExternalArtistOfferStatus.choices,
+        default=ExternalArtistOfferStatus.OFFERED,
+        db_index=True,
+    )
+    safe_brief = models.TextField(blank=True, default="")
+    telegram_chat_id = models.BigIntegerField(blank=True, null=True, db_index=True)
+    telegram_message_id = models.BigIntegerField(blank=True, null=True, db_index=True)
+    client_contact_released_at = models.DateTimeField(blank=True, null=True)
+    responded_at = models.DateTimeField(blank=True, null=True)
+    raw_update = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["intake", "status"]),
+            models.Index(fields=["artist", "status"]),
+            models.Index(fields=["telegram_chat_id", "telegram_message_id"]),
+        ]
+
+    def __str__(self):
+        return f"{self.artist} offer for intake #{self.intake_id}: {self.status}"
 
 class OutboundAction(models.Model):
     intake = models.ForeignKey(IntakeRequest, on_delete=models.CASCADE, related_name="outbound_actions")

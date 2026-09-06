@@ -67,6 +67,7 @@ Key models:
 - `IntakeRequest`: canonical latest tattoo request state for a lead/conversation.
 - `AIAnalysis`: immutable snapshot of every AI analysis response, linked to the triggering message and intake, including summary, AI suggested price, and AI-proposed appointment date/time.
 - `ArtistProfile`: admin-managed artists, Telegram user IDs, private chat IDs, Hoss-only approval flag, and optional vCita staff UID mapping.
+- `ExternalArtistOffer`: offer/accept/decline/cancel state for external artists before client contact is released.
 - `HumanDecision`: approval, rejection, assignment, edited reply, hold appointment, keep/release hold, pending hold review, schedule, and artist reply actions.
 - `TelegramMessageLink`: maps bot messages to intakes so private artist replies can be resolved safely.
 - `OutboundAction`: audit trail for attempted client replies with pending/sent/failed status.
@@ -93,6 +94,7 @@ Current behavior:
 - Review cards show AI-proposed appointment date/time when AI returns both `date` and `time`; this also reveals the Schedule button.
 - Assigned intakes route future client messages to the assigned artist's private Telegram inbox.
 - Assigned artist private cards include intake context such as idea, pricing, placement/size/color, and summary.
+- Assigning a non-approver artist now sends that artist a private safe offer card with `Accept` and `Decline` buttons instead of immediately finalizing assignment.
 - Artist private replies are mapped by reply-to message or `/reply REQUEST_ID ...` and sent back to the original client channel.
 - Client reply attempts are recorded in `OutboundAction` for AI auto-replies, waiting messages, Hoss-approved replies, Hoss-edited replies, and artist replies.
 
@@ -261,6 +263,9 @@ Artist assignment rules:
 - Older Telegram cards using the previous `manual` callback action are still routed into the Edit Reply flow.
 - Only Hoss, represented by an active `ArtistProfile` with `can_approve=True`, can use group `/reply` for an unassigned intake.
 - Hoss can assign the intake to himself; after assignment, he receives private inbox messages like any other artist.
+- If Hoss/Nina assigns an artist with `can_approve=False`, the backend creates an `ExternalArtistOffer` and sends the artist a private safe brief with `Accept` and `Decline` buttons. The safe brief includes tattoo/request context and reference links when available, but hides client phone and email until acceptance.
+- When the external artist accepts, the intake becomes assigned to that artist, other open offers for the same intake are cancelled, the offer card buttons are removed, the group is notified, client name/email are released to the artist, and the client is notified through the original channel that the artist accepted and will contact by email.
+- When the external artist declines, the offer card buttons are removed, the group is notified, and the intake remains available for reassignment or manual handling.
 - Assignment applies to the active `IntakeRequest`, not permanently to the whole lead.
 - After assignment, future client messages for that intake route to the assigned artist's private Telegram chat.
 - Assigned artist replies are sent automatically to the client through the original channel.

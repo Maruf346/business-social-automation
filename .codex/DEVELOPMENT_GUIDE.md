@@ -177,6 +177,7 @@ Models:
 - `IntakeRequest`: latest known tattoo request state.
 - `AIAnalysis`: raw and normalized AI response snapshots.
 - `OutboundAction`: pending/sent/failed audit records for client reply attempts.
+- `ExternalArtistOffer`: offer state for non-approver artists before final assignment and client contact release.
 - Current intake state stores AI summary, AI suggested price, Hoss-approved price, price note, approver, approval timestamp, AI-proposed appointment date/time, pending hold service/date/time/expiry/review state, chosen vCita service snapshot, schedule state, vCita booking UID, and payment state.
 - Admin panel for `IntakeRequest` is organized for local testing: summary, draft reply, AI suggested price, approved price, price note, appointment date, and appointment time can be edited directly before sending a Telegram review card.
 
@@ -341,10 +342,10 @@ Telegram:
 
 - Telegram webhook endpoint now dispatches updates to `TelegramWorkflowService`.
 - `/whoami` returns Telegram user/chat IDs and stores private chat ID for registered artists.
-- Callback query handling supports Hoss-only approve/reject/Edit Reply/assign actions.
-- Callback query handling supports Hoss-only Edit Price.
+- Callback query handling supports Hoss/Nina-only approve/reject/Edit Reply/assign actions.
+- Callback query handling supports Hoss/Nina-only Edit Price.
 - Callback query handling supports Hoss-only Hold/Schedule guidance when AI-proposed date/time exists.
-- Shared group actions must be authorized to Hoss only.
+- Shared group actions must be authorized to an active approver artist (`can_approve=True`).
 - Edit Reply tells Hoss to send `/reply REQUEST_ID message text` in the group; only an artist with `can_approve=True` can send that command for an unassigned intake.
 - Edit Price tells Hoss to send `/price REQUEST_ID price | optional note`; this updates internal pricing only.
 - Pending hold format is `/hold REQUEST_ID SERVICE_CODE YYYY-MM-DD HH:MM`.
@@ -357,6 +358,8 @@ Telegram:
 - Artist private replies should be mapped by `reply_to_message.message_id` to a stored `TelegramMessageLink`.
 - Assigned artist fallback reply format should be `/reply REQUEST_ID message text`.
 - Assigned artist private cards include request context: idea, approved/AI price, optional price note, placement, size, color, and summary.
+- Assigning a non-approver artist sends a private offer card to that artist instead of assigning immediately. The offer card has `Accept` and `Decline` buttons. Telegram does not support custom button colors.
+- External artist offer cards hide client phone and email until acceptance. After `Accept`, the intake is assigned, competing open offers are cancelled, the buttons disappear, the group is notified, client name/email are released to the artist, and the client is notified through the original channel. After `Decline`, the buttons disappear, the group is notified, and Hoss/Nina can assign another artist later.
 - Artists can send text, photos, or documents in private replies. WhatsApp receives media through Meta link sends; Outlook receives media links in the email reply.
 - Fake/admin-created intakes with `source=other` can test Telegram cards and button routing, but they cannot send real client replies. Approve/Edit/artist send actions should report this in Telegram instead of crashing the webhook.
 
