@@ -7,6 +7,7 @@ from typing import Any
 
 from django.conf import settings
 from django.db import transaction
+from django.utils import timezone
 
 try:
     from google.oauth2 import service_account
@@ -17,7 +18,7 @@ except ImportError:  # pragma: no cover - handled at runtime for optional deploy
     build = None
     HttpError = Exception
 
-from intake.models import IntakeRequest
+from intake.models import IntakeRequest, PendingHoldStatus
 
 from .models import *
 
@@ -52,6 +53,7 @@ class GoogleCalendarService:
         intake: IntakeRequest,
         start_at: datetime,
         duration_minutes: int = DEFAULT_DURATION_MINUTES,
+        ignore_own_pending_hold: bool = True,
     ) -> list[str]:
         calendars = self._calendars_for_confirmed_schedule(intake)
         if not calendars:
@@ -63,11 +65,15 @@ class GoogleCalendarService:
 
         end_at = start_at + timedelta(minutes=duration_minutes)
         busy_by_calendar = self._freebusy([calendar.calendar_id for calendar in calendars], start_at, end_at)
-        busy_names = [
-            calendar.name
-            for calendar in calendars
-            if busy_by_calendar.get(calendar.calendar_id)
-        ]
+        own_pending_by_calendar = self._active_pending_events_by_calendar(intake) if ignore_own_pending_hold else {}
+        busy_names = []
+        for calendar in calendars:
+            busy_slots = busy_by_calendar.get(calendar.calendar_id) or []
+            own_pending = own_pending_by_calendar.get(calendar.pk)
+            if own_pending and self._busy_slots_only_match_event(busy_slots, own_pending):
+                continue
+            if busy_slots:
+                busy_names.append(calendar.name)
         if busy_names:
             raise GoogleCalendarError(
                 "Google Calendar conflict found for: " + ", ".join(busy_names)
@@ -122,6 +128,7 @@ class GoogleCalendarService:
                     summary=summary,
                     description=description,
                     message=str(exc),
+                    event_type=GoogleCalendarEventType.CONFIRMED_APPOINTMENT,
                     existing=existing,
                 )
                 warnings.append(f"{calendar.name}: {exc}")
@@ -146,6 +153,148 @@ class GoogleCalendarService:
         return GoogleCalendarSyncResult(
             checked_calendar_ids=[calendar.calendar_id for calendar in calendars],
             synced_event_ids=synced_event_ids,
+            warnings=warnings,
+        )
+    def hold_pending_appointment(
+        self,
+        intake: IntakeRequest,
+        start_at: datetime,
+        service_code: str,
+        service_name: str,
+        duration_minutes: int = DEFAULT_DURATION_MINUTES,
+    ) -> GoogleCalendarSyncResult:
+        calendars = list(
+            GoogleCalendarConfig.objects.filter(
+                calendar_type=GoogleCalendarType.PENDING,
+                is_active=True,
+            )
+        )
+        if not calendars:
+            raise GoogleCalendarError("Pending Appointments calendar is not configured in the Admin panel.")
+        if not self.is_configured():
+            raise GoogleCalendarError("Google Calendar service account credentials are not configured.")
+
+        end_at = start_at + timedelta(minutes=duration_minutes)
+        busy_by_calendar = self._freebusy([calendar.calendar_id for calendar in calendars], start_at, end_at)
+        busy_names = []
+        own_pending_by_calendar = self._active_pending_events_by_calendar(intake)
+        for calendar in calendars:
+            busy_slots = busy_by_calendar.get(calendar.calendar_id) or []
+            own_pending = own_pending_by_calendar.get(calendar.pk)
+            if own_pending and self._busy_slots_only_match_event(busy_slots, own_pending):
+                continue
+            if busy_slots:
+                busy_names.append(calendar.name)
+        if busy_names:
+            raise GoogleCalendarError("Google Calendar conflict found for: " + ", ".join(busy_names))
+
+        summary = self._build_pending_event_summary(intake, service_code, service_name)
+        description = self._build_pending_event_description(intake, service_code, service_name)
+        synced_event_ids: list[str] = []
+        warnings: list[str] = []
+
+        for calendar in calendars:
+            existing = GoogleCalendarEvent.objects.filter(
+                intake=intake,
+                calendar=calendar,
+                event_type=GoogleCalendarEventType.PENDING_HOLD,
+            ).exclude(status=GoogleCalendarSyncStatus.RELEASED).first()
+            try:
+                response = self._upsert_event(
+                    calendar=calendar,
+                    existing_event_id=existing.google_event_id if existing else "",
+                    start_at=start_at,
+                    end_at=end_at,
+                    summary=summary,
+                    description=description,
+                )
+            except GoogleCalendarError as exc:
+                self._record_failed_event(
+                    intake=intake,
+                    calendar=calendar,
+                    start_at=start_at,
+                    end_at=end_at,
+                    summary=summary,
+                    description=description,
+                    message=str(exc),
+                    event_type=GoogleCalendarEventType.PENDING_HOLD,
+                    existing=existing,
+                )
+                warnings.append(f"{calendar.name}: {exc}")
+                continue
+
+            google_event_id = str(response.get("id") or (existing.google_event_id if existing else ""))
+            with transaction.atomic():
+                event = existing or GoogleCalendarEvent(intake=intake, calendar=calendar)
+                event.event_type = GoogleCalendarEventType.PENDING_HOLD
+                event.google_event_id = google_event_id
+                event.status = GoogleCalendarSyncStatus.SYNCED
+                event.start_at = start_at
+                event.end_at = end_at
+                event.summary = summary
+                event.description = description
+                event.sync_error = ""
+                event.raw_response = response
+                event.save()
+            if google_event_id:
+                synced_event_ids.append(google_event_id)
+
+        if warnings and not synced_event_ids:
+            raise GoogleCalendarError("Pending hold could not be created: " + " | ".join(warnings))
+
+        return GoogleCalendarSyncResult(
+            checked_calendar_ids=[calendar.calendar_id for calendar in calendars],
+            synced_event_ids=synced_event_ids,
+            warnings=warnings,
+        )
+
+    def release_pending_hold(self, intake: IntakeRequest) -> GoogleCalendarSyncResult:
+        events = list(
+            GoogleCalendarEvent.objects.select_related("calendar").filter(
+                intake=intake,
+                event_type=GoogleCalendarEventType.PENDING_HOLD,
+            ).exclude(status=GoogleCalendarSyncStatus.RELEASED)
+        )
+        if not events:
+            return GoogleCalendarSyncResult(checked_calendar_ids=[], synced_event_ids=[], warnings=[])
+        if not self.is_configured():
+            return GoogleCalendarSyncResult(
+                checked_calendar_ids=[event.calendar.calendar_id for event in events],
+                synced_event_ids=[],
+                warnings=["Pending hold was not released because Google Calendar credentials are not configured."],
+            )
+
+        service = self._get_service()
+        released_event_ids: list[str] = []
+        warnings: list[str] = []
+        for event in events:
+            try:
+                if event.google_event_id:
+                    service.events().delete(
+                        calendarId=event.calendar.calendar_id,
+                        eventId=event.google_event_id,
+                    ).execute()
+                event.status = GoogleCalendarSyncStatus.RELEASED
+                event.sync_error = ""
+                event.save(update_fields=["status", "sync_error", "updated_at"])
+                if event.google_event_id:
+                    released_event_ids.append(event.google_event_id)
+            except HttpError as exc:
+                message = self._format_http_error(exc)
+                event.status = GoogleCalendarSyncStatus.FAILED
+                event.sync_error = message
+                event.save(update_fields=["status", "sync_error", "updated_at"])
+                warnings.append(f"{event.calendar.name}: {message}")
+            except Exception as exc:
+                message = str(exc)
+                event.status = GoogleCalendarSyncStatus.FAILED
+                event.sync_error = message
+                event.save(update_fields=["status", "sync_error", "updated_at"])
+                warnings.append(f"{event.calendar.name}: {message}")
+
+        return GoogleCalendarSyncResult(
+            checked_calendar_ids=[event.calendar.calendar_id for event in events],
+            synced_event_ids=released_event_ids,
             warnings=warnings,
         )
 
@@ -190,6 +339,33 @@ class GoogleCalendarService:
             )
         )
         return self._unique_calendars(calendars)
+
+    @staticmethod
+    def _active_pending_events_by_calendar(intake: IntakeRequest) -> dict[int, GoogleCalendarEvent]:
+        if intake.pending_hold_status not in {PendingHoldStatus.ACTIVE, PendingHoldStatus.FINALIZED}:
+            return {}
+        events = GoogleCalendarEvent.objects.filter(
+            intake=intake,
+            event_type=GoogleCalendarEventType.PENDING_HOLD,
+            status=GoogleCalendarSyncStatus.SYNCED,
+        )
+        return {event.calendar_id: event for event in events}
+
+    @staticmethod
+    def _busy_slots_only_match_event(busy_slots: list[dict[str, str]], event: GoogleCalendarEvent) -> bool:
+        if not busy_slots:
+            return False
+        event_start = event.start_at.astimezone(timezone.utc)
+        event_end = event.end_at.astimezone(timezone.utc)
+        for slot in busy_slots:
+            try:
+                slot_start = datetime.fromisoformat(str(slot.get("start", "")).replace("Z", "+00:00")).astimezone(timezone.utc)
+                slot_end = datetime.fromisoformat(str(slot.get("end", "")).replace("Z", "+00:00")).astimezone(timezone.utc)
+            except ValueError:
+                return False
+            if slot_start != event_start or slot_end != event_end:
+                return False
+        return True
 
     @staticmethod
     def _unique_calendars(calendars: list[GoogleCalendarConfig]) -> list[GoogleCalendarConfig]:
@@ -287,6 +463,25 @@ class GoogleCalendarService:
         return self._service
 
     @staticmethod
+    def _build_pending_event_summary(intake: IntakeRequest, service_code: str, service_name: str) -> str:
+        client = str(intake.lead)
+        artist = intake.assigned_artist.name if intake.assigned_artist else "Unassigned"
+        return f"PENDING Request #{intake.pk} - {service_code} - {artist} - {client}"[:255]
+
+    @staticmethod
+    def _build_pending_event_description(intake: IntakeRequest, service_code: str, service_name: str) -> str:
+        lines = [
+            f"Pending hold for Request #{intake.pk}",
+            f"Service: {service_code} - {service_name}",
+            f"Client: {intake.lead}",
+            f"Artist: {intake.assigned_artist.name if intake.assigned_artist else 'Unassigned'}",
+            "This slot is held while payment/final confirmation is pending.",
+        ]
+        if intake.latest_summary:
+            lines.extend(["", "Summary:", intake.latest_summary])
+        return "\n".join(lines)
+
+    @staticmethod
     def _build_event_summary(intake: IntakeRequest, service_code: str, service_name: str) -> str:
         client = str(intake.lead)
         artist = intake.assigned_artist.name if intake.assigned_artist else "Unassigned"
@@ -323,10 +518,11 @@ class GoogleCalendarService:
         summary: str,
         description: str,
         message: str,
+        event_type: str = GoogleCalendarEventType.CONFIRMED_APPOINTMENT,
         existing: GoogleCalendarEvent | None = None,
     ) -> None:
         event = existing or GoogleCalendarEvent(intake=intake, calendar=calendar)
-        event.event_type = GoogleCalendarEventType.CONFIRMED_APPOINTMENT
+        event.event_type = event_type
         event.status = GoogleCalendarSyncStatus.FAILED
         event.start_at = start_at
         event.end_at = end_at

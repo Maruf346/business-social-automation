@@ -16,12 +16,13 @@ from intake.models import (
     IntakeRequest,
     IntakeStatus,
     OutboundActionType,
+    PendingHoldStatus,
     TelegramMessageLink,
     TelegramMessagePurpose,
 )
 from lead.choices import SEND_BY
 from intake.outbound import ClientOutboundService
-from vcita.scheduling import VcitaScheduleResult, VcitaSchedulingError, VcitaSchedulingService
+from vcita.scheduling import VcitaHoldResult, VcitaScheduleResult, VcitaSchedulingError, VcitaSchedulingService
 
 logger = logging.getLogger(__name__)
 
@@ -49,6 +50,20 @@ class TelegramWorkflowService:
         )
         return response
 
+
+    def send_pending_hold_review_card(self, intake: IntakeRequest, summary: str) -> dict:
+        text = self._format_pending_hold_review_text(intake, summary)
+        response = self.telegram.send_message(
+            text=text,
+            reply_markup=self._build_pending_hold_review_keyboard(intake),
+        )
+        self._store_message_link(
+            intake=intake,
+            purpose=TelegramMessagePurpose.GROUP_REVIEW,
+            response=response,
+            artist=None,
+        )
+        return response
     def send_artist_update(
         self,
         intake: IntakeRequest,
@@ -108,6 +123,30 @@ class TelegramWorkflowService:
             return self._mark_edit_reply(intake, actor, callback_id, chat_id, message_id, raw_update)
         if action == "price":
             return self._mark_edit_price(intake, actor, callback_id, chat_id, message_id, raw_update)
+        if action == "hold":
+            return self._hold_intake(intake, actor, callback_id, chat_id, message_id, raw_update)
+        if action == "keep_hold":
+            return self._apply_pending_hold_decision(
+                intake=intake,
+                actor=actor,
+                decision="keep",
+                raw_update=raw_update,
+                chat_id=chat_id,
+                message_id=message_id,
+                callback_id=callback_id,
+                original_text=message.get("text") or "",
+            )
+        if action == "release_hold":
+            return self._apply_pending_hold_decision(
+                intake=intake,
+                actor=actor,
+                decision="release",
+                raw_update=raw_update,
+                chat_id=chat_id,
+                message_id=message_id,
+                callback_id=callback_id,
+                original_text=message.get("text") or "",
+            )
         if action == "schedule":
             return self._schedule_intake(intake, actor, callback_id, chat_id, message_id, raw_update)
         if action == "assign":
@@ -139,6 +178,15 @@ class TelegramWorkflowService:
 
         if command == "/schedule":
             return self._handle_schedule_command(message, artist, raw_update)
+
+        if command == "/hold":
+            return self._handle_hold_command(message, artist, raw_update)
+
+        if command == "/keephold":
+            return self._handle_keep_hold_command(message, artist, raw_update)
+
+        if command == "/releasehold":
+            return self._handle_release_hold_command(message, artist, raw_update)
 
         if command == "/logs":
             return self._handle_logs_command(message, artist)
@@ -296,6 +344,172 @@ class TelegramWorkflowService:
             appointment_time=parts[4],
         )
 
+
+    def _handle_hold_command(
+        self,
+        message: dict[str, Any],
+        artist: ArtistProfile,
+        raw_update: dict[str, Any],
+    ) -> dict[str, Any]:
+        chat_id = message.get("chat", {}).get("id")
+        if not artist.can_approve:
+            self.telegram.send_message(chat_id=chat_id, text="Only Hoss/Nina can hold appointment slots.")
+            return {"ok": False, "reason": "unauthorized"}
+
+        text = (message.get("text") or "").strip()
+        parts = text.split()
+        if len(parts) != 5 or not parts[1].isdigit():
+            self.telegram.send_message(chat_id=chat_id, text=self._hold_command_help())
+            return {"ok": False, "reason": "invalid_hold_command"}
+
+        intake = IntakeRequest.objects.select_related("lead", "assigned_artist").filter(
+            pk=int(parts[1]),
+            is_active=True,
+        ).first()
+        if not intake:
+            self.telegram.send_message(chat_id=chat_id, text="I could not find an active request with that ID.")
+            return {"ok": False, "reason": "unknown_intake"}
+
+        return self._hold_intake(
+            intake=intake,
+            actor=artist,
+            callback_id=None,
+            chat_id=chat_id,
+            message_id=message.get("message_id"),
+            raw_update=raw_update,
+            service_code=parts[2],
+            appointment_date=parts[3],
+            appointment_time=parts[4],
+        )
+
+    def _handle_keep_hold_command(
+        self,
+        message: dict[str, Any],
+        artist: ArtistProfile,
+        raw_update: dict[str, Any],
+    ) -> dict[str, Any]:
+        return self._handle_pending_hold_decision(
+            message=message,
+            artist=artist,
+            raw_update=raw_update,
+            decision="keep",
+        )
+
+    def _handle_release_hold_command(
+        self,
+        message: dict[str, Any],
+        artist: ArtistProfile,
+        raw_update: dict[str, Any],
+    ) -> dict[str, Any]:
+        return self._handle_pending_hold_decision(
+            message=message,
+            artist=artist,
+            raw_update=raw_update,
+            decision="release",
+        )
+
+    def _handle_pending_hold_decision(
+        self,
+        message: dict[str, Any],
+        artist: ArtistProfile,
+        raw_update: dict[str, Any],
+        decision: str,
+    ) -> dict[str, Any]:
+        chat_id = message.get("chat", {}).get("id")
+        if not artist.can_approve:
+            self.telegram.send_message(chat_id=chat_id, text="Only Hoss/Nina can keep or release pending holds.")
+            return {"ok": False, "reason": "unauthorized"}
+
+        command = "/keephold" if decision == "keep" else "/releasehold"
+        parts = (message.get("text") or "").strip().split()
+        if len(parts) != 2 or not parts[1].isdigit():
+            self.telegram.send_message(chat_id=chat_id, text=f"Use {command} REQUEST_ID. Example: {command} 12")
+            return {"ok": False, "reason": "invalid_pending_hold_decision"}
+
+        intake = IntakeRequest.objects.select_related("lead", "assigned_artist").filter(
+            pk=int(parts[1]),
+            is_active=True,
+        ).first()
+        if not intake:
+            self.telegram.send_message(chat_id=chat_id, text="I could not find an active request with that ID.")
+            return {"ok": False, "reason": "unknown_intake"}
+
+        return self._apply_pending_hold_decision(
+            intake=intake,
+            actor=artist,
+            decision=decision,
+            raw_update=raw_update,
+            chat_id=chat_id,
+            message_id=message.get("message_id"),
+        )
+
+    def _apply_pending_hold_decision(
+        self,
+        intake: IntakeRequest,
+        actor: ArtistProfile,
+        decision: str,
+        raw_update: dict[str, Any],
+        chat_id: int | None,
+        message_id: int | None,
+        callback_id: str | None = None,
+        original_text: str = "",
+    ) -> dict[str, Any]:
+        if intake.pending_hold_status != PendingHoldStatus.ACTIVE:
+            response_text = f"Request #{intake.pk}: this pending hold has already been handled."
+            if callback_id:
+                self.telegram.answer_callback_query(callback_id, "This pending hold has already been handled.", show_alert=True)
+                self._mark_pending_hold_review_card_handled(
+                    chat_id,
+                    message_id,
+                    original_text,
+                    "Status: This pending hold was already handled.",
+                )
+            else:
+                self.telegram.send_message(chat_id=chat_id, text=response_text)
+            return {"ok": False, "reason": "pending_hold_already_handled", "intake_id": intake.pk}
+
+        scheduler = VcitaSchedulingService()
+        try:
+            if decision == "keep":
+                expires_at = scheduler.keep_pending_hold(intake)
+                expires_label = timezone.localtime(expires_at).strftime("%Y-%m-%d %H:%M")
+                note = f"Pending hold kept until {expires_label}."
+                action = HumanDecisionAction.KEEP_HOLD
+                response_text = f"Request #{intake.pk}: pending hold kept until {expires_label}."
+                status_text = f"Status: Hold kept by {actor.name} until {expires_label}."
+            else:
+                released_event_ids = scheduler.release_pending_hold_manually(intake)
+                note = "Pending hold released."
+                if released_event_ids:
+                    note += " Released Google event IDs: " + ", ".join(released_event_ids)
+                action = HumanDecisionAction.RELEASE_HOLD
+                response_text = f"Request #{intake.pk}: pending hold released."
+                status_text = f"Status: Hold released by {actor.name}."
+        except VcitaSchedulingError as exc:
+            if callback_id:
+                self.telegram.answer_callback_query(callback_id, str(exc)[:200], show_alert=True)
+                self._clear_pending_hold_review_buttons(chat_id, message_id)
+            self.telegram.send_message(
+                chat_id=chat_id,
+                text=f"Request #{intake.pk}: could not {decision} pending hold.\nReason: {escape(str(exc))}",
+            )
+            return {"ok": False, "reason": f"{decision}_hold_failed", "intake_id": intake.pk}
+
+        HumanDecision.objects.create(
+            intake=intake,
+            actor=actor,
+            action=action,
+            note=note,
+            telegram_chat_id=chat_id,
+            telegram_message_id=message_id,
+            telegram_callback_id=callback_id or "",
+            raw_update=raw_update,
+        )
+        if callback_id:
+            self.telegram.answer_callback_query(callback_id, response_text[:200])
+            self._mark_pending_hold_review_card_handled(chat_id, message_id, original_text, status_text)
+        self.telegram.send_message(chat_id=chat_id, text=response_text)
+        return {"ok": True, "action": decision + "_hold", "intake_id": intake.pk}
     def _handle_logs_command(
         self,
         message: dict[str, Any],
@@ -757,6 +971,64 @@ class TelegramWorkflowService:
 
         return media_items
 
+
+    def _build_pending_hold_review_keyboard(self, intake: IntakeRequest) -> dict[str, Any]:
+        return {
+            "inline_keyboard": [
+                [
+                    {
+                        "text": "Keep Hold",
+                        "callback_data": f"{self.CALLBACK_PREFIX}:keep_hold:{intake.pk}",
+                    },
+                    {
+                        "text": "Release Hold",
+                        "callback_data": f"{self.CALLBACK_PREFIX}:release_hold:{intake.pk}",
+                    },
+                ]
+            ]
+        }
+
+    def _format_pending_hold_review_text(self, intake: IntakeRequest, summary: str) -> str:
+        expires_at = (
+            timezone.localtime(intake.pending_hold_expires_at).strftime("%Y-%m-%d %H:%M")
+            if intake.pending_hold_expires_at
+            else "Unknown"
+        )
+        return (
+            f"<b>Pending hold needs review: Request #{intake.pk}</b>\n"
+            f"Expired/review due: {escape(expires_at)}\n"
+            f"Held time: {escape(intake.pending_hold_date)} at {escape(intake.pending_hold_time)}\n"
+            f"Service: {escape(intake.pending_hold_service_code)} - {escape(intake.pending_hold_service_name)}\n"
+            f"Artist: {escape(intake.assigned_artist.name if intake.assigned_artist else 'Unassigned')}\n\n"
+            f"<b>Summary</b>\n{escape(summary)}\n\n"
+            "Please choose what to do."
+        )
+
+    def _mark_pending_hold_review_card_handled(
+        self,
+        chat_id: int | None,
+        message_id: int | None,
+        original_text: str,
+        status_text: str,
+    ) -> None:
+        if not chat_id or not message_id:
+            return
+        text = escape(original_text.strip()) if original_text.strip() else "Pending hold review handled."
+        if "Status:" not in original_text:
+            text = f"{text}\n\n<b>{escape(status_text)}</b>"
+        try:
+            self.telegram.edit_message_text(chat_id=chat_id, message_id=message_id, text=text, reply_markup=None)
+        except Exception:
+            logger.exception("Could not edit pending hold review card after decision.")
+            self._clear_pending_hold_review_buttons(chat_id, message_id)
+
+    def _clear_pending_hold_review_buttons(self, chat_id: int | None, message_id: int | None) -> None:
+        if not chat_id or not message_id:
+            return
+        try:
+            self.telegram.edit_message_reply_markup(chat_id=chat_id, message_id=message_id, reply_markup=None)
+        except Exception:
+            logger.exception("Could not clear pending hold review buttons.")
     def _build_review_keyboard(self, intake: IntakeRequest) -> dict[str, Any]:
         keyboard = [
             [
@@ -788,6 +1060,10 @@ class TelegramWorkflowService:
             keyboard.append(
                 [
                     {
+                        "text": "Hold",
+                        "callback_data": f"{self.CALLBACK_PREFIX}:hold:{intake.pk}",
+                    },
+                    {
                         "text": "Schedule",
                         "callback_data": f"{self.CALLBACK_PREFIX}:schedule:{intake.pk}",
                     }
@@ -806,6 +1082,13 @@ class TelegramWorkflowService:
             price_lines.append(f"Price note: {escape(intake.price_note)}")
         if intake.appointment_date and intake.appointment_time:
             price_lines.append(f"Suggested schedule: {escape(intake.appointment_date)} at {escape(intake.appointment_time)}")
+        if intake.pending_hold_status and intake.pending_hold_status != "none":
+            pending = f"Pending hold: {intake.get_pending_hold_status_display()}"
+            if intake.pending_hold_date and intake.pending_hold_time:
+                pending += f" - {intake.pending_hold_date} at {intake.pending_hold_time}"
+            if intake.pending_hold_service_code:
+                pending += f" - {intake.pending_hold_service_code} {intake.pending_hold_service_name}"
+            price_lines.append(escape(pending))
         if intake.scheduled_date and intake.scheduled_time:
             price_lines.append(
                 f"Scheduled: {escape(intake.scheduled_date)} at {escape(intake.scheduled_time)}"
@@ -863,6 +1146,10 @@ class TelegramWorkflowService:
                 detail_lines.append(
                     f"Service: {escape(intake.scheduled_service_code)} - {escape(intake.scheduled_service_name)}"
                 )
+        elif intake.pending_hold_date and intake.pending_hold_time:
+            detail_lines.append(f"Pending hold: {escape(intake.pending_hold_date)} at {escape(intake.pending_hold_time)}")
+            if intake.pending_hold_service_code:
+                detail_lines.append(f"Service: {escape(intake.pending_hold_service_code)} - {escape(intake.pending_hold_service_name)}")
         elif intake.appointment_date and intake.appointment_time:
             detail_lines.append(f"Suggested schedule: {escape(intake.appointment_date)} at {escape(intake.appointment_time)}")
 
@@ -915,6 +1202,14 @@ class TelegramWorkflowService:
         return (
             "Use /schedule REQUEST_ID SERVICE_CODE YYYY-MM-DD HH:MM.\n"
             "Example: /schedule 1 OCH 2026-09-04 14:30\n\n"
+            f"{VcitaSchedulingService.service_code_help()}"
+        )
+
+    @staticmethod
+    def _hold_command_help() -> str:
+        return (
+            "Use /hold REQUEST_ID SERVICE_CODE YYYY-MM-DD HH:MM.\n"
+            "Example: /hold 1 OCH 2026-09-04 14:30\n\n"
             f"{VcitaSchedulingService.service_code_help()}"
         )
 
@@ -977,7 +1272,13 @@ class TelegramWorkflowService:
             return f"assigned {decision.assigned_artist.name}"
         if decision.action == HumanDecisionAction.EDIT_PRICE:
             return decision.note.replace("\n", " | ")
-        if decision.action == HumanDecisionAction.SCHEDULE:
+        if decision.action in (
+            HumanDecisionAction.HOLD_APPOINTMENT,
+            HumanDecisionAction.KEEP_HOLD,
+            HumanDecisionAction.RELEASE_HOLD,
+            HumanDecisionAction.PENDING_HOLD_REVIEW,
+            HumanDecisionAction.SCHEDULE,
+        ):
             return decision.note
         if decision.action in (HumanDecisionAction.EDIT_REPLY, HumanDecisionAction.ARTIST_REPLY):
             note = decision.note.strip().replace("\n", " ")
@@ -995,6 +1296,17 @@ class TelegramWorkflowService:
         if not warnings:
             return ""
         return "\n\nGoogle Calendar warning:\n" + escape("\n".join(warnings))
+
+    @staticmethod
+    def _format_hold_group_confirmation(result: VcitaHoldResult) -> str:
+        return (
+            f"Request #{result.intake.pk} pending hold created.\n"
+            f"When: {escape(result.requested_date)} at {escape(result.requested_time)}\n"
+            f"Service: {escape(result.service.code)} - {escape(result.service.name)}\n"
+            f"Artist: {escape(result.intake.assigned_artist.name if result.intake.assigned_artist else 'Unassigned')}\n"
+            f"Expires: {escape(timezone.localtime(result.expires_at).strftime('%Y-%m-%d %H:%M'))}\n"
+            "Waiting for vCita payment/final confirmation." + TelegramWorkflowService._format_google_warning_text(result.google_sync_warnings)
+        )
 
     @staticmethod
     def _format_schedule_group_confirmation(result: VcitaScheduleResult) -> str:

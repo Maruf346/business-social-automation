@@ -1,6 +1,6 @@
 # Milestone 2 Plan
 
-Last reviewed: 2026-09-05
+Last reviewed: 2026-09-06
 
 ## Milestone 2 Goal
 
@@ -280,7 +280,7 @@ Google Calendar:
 - Check availability before booking confirmation.
 - Prevent double booking.
 - Create/update calendar events after approval.
-- Initial backend scaffold implemented on 2026-09-05 with `google_calendar` app, Admin panel mappings, service-account configuration, free/busy conflict checks, and confirmed appointment event sync. Pending unpaid hold workflow is still planned.
+- Initial backend scaffold implemented on 2026-09-05 with `google_calendar` app, Admin panel mappings, service-account configuration, free/busy conflict checks, and confirmed appointment event sync. Pending unpaid hold workflow was added on 2026-09-06.
 
 vCita:
 
@@ -310,11 +310,16 @@ Phase 3 implemented initially on 2026-08-27:
 - Uses `VcitaAccount.business_uid`, `default_timezone`, and an active `VcitaService` mapping for the selected service code.
 - Live vCita token/payload verification remains before relying on this in production.
 
-Phase 3 extended on 2026-09-05:
+Phase 3 extended on 2026-09-05 and 2026-09-06:
 
 - Added Google Calendar conflict checks before vCita booking writes when active calendars are mapped.
 - Added confirmed appointment event sync after successful vCita scheduling.
 - Added Telegram warning visibility when Google Calendar sync fails after vCita succeeds.
+- Added `/hold REQUEST_ID SERVICE_CODE YYYY-MM-DD HH:MM` to block the Pending Appointments Google Calendar for up to one week while payment/final confirmation is outstanding.
+- Added pending hold state on `IntakeRequest`, including held service/date/time, expiry, release/finalized timestamps, and error notes.
+- Final scheduling ignores the same request's own pending hold during availability checks, so the reserved slot can be converted into a final appointment.
+- Pending holds are released only after final vCita booking and confirmed Google Calendar sync succeed; if vCita fails, the hold remains active and Telegram is notified.
+- Added one-week pending hold review support through Celery Beat + `notify_pending_holds`, with AI-summary fallback, Telegram review card buttons, post-click button removal/status update, and manual `/keephold` or `/releasehold` fallback commands.
 - Added Admin panel calendar mapping and sync audit records.
 
 Phase 4 partially started on 2026-08-27:
@@ -323,6 +328,7 @@ Phase 4 partially started on 2026-08-27:
 - Admin dashboard visibility for vCita sync state.
 - Document unsupported vCita capabilities and safest alternatives.
 - Initial payment status update hooks exist for matching vCita webhook payloads; real payload shape must be verified.
+- Paid/recorded payment webhooks can now auto-finalize one matched active pending hold by creating the final vCita booking and notifying Telegram/client. If matching is ambiguous or final booking fails, the webhook is marked failed, Telegram receives a clear error, and the pending hold remains for manual review.
 
 Deliverable:
 
@@ -349,10 +355,10 @@ Deliverable:
 
 Implemented deployment scaffolding on 2026-08-25:
 
-- Dockerfile now uses a slim Python image and starts through `docker/start-web.sh`.
+- Dockerfile now uses a slim Python image and starts through `docker/start-web.sh`; worker and beat scripts are also included for Celery services.
 - `docker/start-web.sh` runs migrations, collects static assets, and starts gunicorn.
-- Local Docker Compose now includes backend, Postgres, and Redis.
-- Production Docker Compose now includes backend image, Postgres, Redis, and nginx.
+- Local Docker Compose now includes backend, Celery worker, Celery Beat, Postgres, and Redis.
+- Production Docker Compose now includes backend image, Celery worker, Celery Beat, Postgres, Redis, and nginx.
 - nginx listens on port `80` and proxies to backend port `8007`.
 - Django settings now support `DATABASE_URL`, explicit `POSTGRES_*` variables, Redis broker env, reverse-proxy headers, and optional S3 media storage.
 - GitHub Actions pipeline now builds and pushes a Docker Hub image on `main`.

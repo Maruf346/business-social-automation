@@ -10,9 +10,13 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from core.services.telegram_bot_service import TelegramBotService
-from intake.models import IntakeRequest, PaymentStatus, ScheduleStatus
+from core.exceptions import MetaAPIError, OutlookAPIError
+from intake.models import HumanDecision, HumanDecisionAction, IntakeRequest, PaymentStatus, PendingHoldStatus, ScheduleStatus
+from intake.outbound import ClientOutboundService
+from lead.choices import SEND_BY
+from vcita.scheduling import VcitaSchedulingError, VcitaSchedulingService
 
-from .models import VcitaAccount, VcitaWebhookEvent
+from .models import VcitaAccount, VcitaWebhookEvent, VcitaWebhookStatus
 
 logger = logging.getLogger(__name__)
 
@@ -128,6 +132,11 @@ class VcitaWebhook(APIView):
                 intake.payment_reference = event.external_id or booking_uid
                 update_fields.extend(["payment_status", "payment_reference"])
                 message = f"Request #{intake.pk}: vCita payment marked refunded."
+            elif "recorded" in normalized_event:
+                intake.payment_status = PaymentStatus.PAID
+                intake.payment_reference = event.external_id or booking_uid
+                update_fields.extend(["payment_status", "payment_reference"])
+                message = f"Request #{intake.pk}: vCita payment marked paid."
             elif "failed" in normalized_event:
                 intake.payment_status = PaymentStatus.FAILED
                 intake.payment_reference = event.external_id or booking_uid

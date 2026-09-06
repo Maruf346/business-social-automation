@@ -48,6 +48,35 @@ class TelegramBotService:
         response.raise_for_status()
         return response.json()
 
+    def edit_message_text(self, chat_id, message_id, text, reply_markup=None):
+        if not self.bot_token:
+            raise ImproperlyConfigured("TELEGRAM_BOT_TOKEN is not configured.")
+        url = f"https://api.telegram.org/bot{self.bot_token}/editMessageText"
+        payload = {
+            "chat_id": chat_id,
+            "message_id": message_id,
+            "text": text,
+            "parse_mode": "HTML",
+        }
+        if reply_markup is not None:
+            payload["reply_markup"] = reply_markup
+        response = requests.post(url, json=payload, timeout=30)
+        response.raise_for_status()
+        return response.json()
+
+    def edit_message_reply_markup(self, chat_id, message_id, reply_markup=None):
+        if not self.bot_token:
+            raise ImproperlyConfigured("TELEGRAM_BOT_TOKEN is not configured.")
+        url = f"https://api.telegram.org/bot{self.bot_token}/editMessageReplyMarkup"
+        payload = {
+            "chat_id": chat_id,
+            "message_id": message_id,
+            "reply_markup": reply_markup,
+        }
+        response = requests.post(url, json=payload, timeout=30)
+        response.raise_for_status()
+        return response.json()
+
     def get_file(self, file_id):
         url = f"https://api.telegram.org/bot{self.bot_token}/getFile"
         response = requests.get(url, params={"file_id": file_id}, timeout=30)

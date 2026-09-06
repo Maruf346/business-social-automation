@@ -215,6 +215,15 @@ CELERY_RESULT_BACKEND = "django-db"
 
 CELERY_TASK_ALWAYS_EAGER = os.getenv("CELERY_TASK_ALWAYS_EAGER", "True").strip().lower() in ("true", "1", "yes")
 CELERY_TASK_EAGER_PROPAGATES = os.getenv("CELERY_TASK_EAGER_PROPAGATES", "True").strip().lower() in ("true", "1", "yes")
+CELERY_PENDING_HOLD_REVIEW_INTERVAL_MINUTES = int(os.getenv("CELERY_PENDING_HOLD_REVIEW_INTERVAL_MINUTES", "60"))
+CELERY_PENDING_HOLD_REVIEW_LIMIT = int(os.getenv("CELERY_PENDING_HOLD_REVIEW_LIMIT", "20"))
+CELERY_BEAT_SCHEDULE = {}
+if env_bool("ENABLE_PENDING_HOLD_REVIEW_BEAT", True):
+    CELERY_BEAT_SCHEDULE["notify-pending-holds"] = {
+        "task": "intake.notify_pending_holds",
+        "schedule": timedelta(minutes=CELERY_PENDING_HOLD_REVIEW_INTERVAL_MINUTES),
+        "kwargs": {"limit": CELERY_PENDING_HOLD_REVIEW_LIMIT},
+    }
 
 # =================Celery & Redis Config End================================
 # ==========================================================================================

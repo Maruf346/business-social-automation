@@ -1,6 +1,6 @@
 # Project Context
 
-Last reviewed: 2026-09-05
+Last reviewed: 2026-09-06
 
 ## Product Goal
 
@@ -27,10 +27,10 @@ This repository does not own the AI implementation itself. An AI engineer is bui
 - Auth/config scaffolding: SimpleJWT, custom `account.User`.
 - Task system: Celery, currently configured as eager in local settings.
 - Database: SQLite by default for local direct `runserver`; Postgres is supported through `DATABASE_URL` or `POSTGRES_*` env vars and is used by Docker Compose.
-- Deployment: Docker image build, production compose, nginx reverse proxy, Redis service, Celery worker service, and optional S3 media storage are now scaffolded.
+- Deployment: Docker image build, production compose, nginx reverse proxy, Redis service, Celery worker service, Celery Beat service, and optional S3 media storage are now scaffolded.
 - External APIs: Meta WhatsApp Graph API, Microsoft Graph API, Telegram Bot API, external AI API.
 - vCita/inTandem integration: account token storage, webhook capture, service-code mapping, booking create/update, availability checks, and basic payment/status sync exist.
-- Google Calendar integration: service-account based calendar mappings, free/busy conflict checks, and confirmed appointment event sync are scaffolded.
+- Google Calendar integration: service-account based calendar mappings, free/busy conflict checks, pending appointment holds, pending hold release, and confirmed appointment event sync are scaffolded.
 
 Important mismatch: the Milestone 2 note mentions FastAPI, LangChain/LangGraph, PostgreSQL, and AWS. The current repo is Django/DRF/Celery/SQLite. Prefer evolving this Django backend unless a rewrite is explicitly approved.
 
@@ -67,7 +67,7 @@ Key models:
 - `IntakeRequest`: canonical latest tattoo request state for a lead/conversation.
 - `AIAnalysis`: immutable snapshot of every AI analysis response, linked to the triggering message and intake, including summary, AI suggested price, and AI-proposed appointment date/time.
 - `ArtistProfile`: admin-managed artists, Telegram user IDs, private chat IDs, Hoss-only approval flag, and optional vCita staff UID mapping.
-- `HumanDecision`: approval, rejection, assignment, edited reply, and artist reply actions.
+- `HumanDecision`: approval, rejection, assignment, edited reply, hold appointment, keep/release hold, pending hold review, schedule, and artist reply actions.
 - `TelegramMessageLink`: maps bot messages to intakes so private artist replies can be resolved safely.
 - `OutboundAction`: audit trail for attempted client replies with pending/sent/failed status.
 
@@ -129,14 +129,14 @@ Key models:
 
 Key code:
 
-- `GoogleCalendarService`: loads service-account credentials from env/file, runs free/busy checks, creates or updates confirmed appointment events, and records sync failures.
+- `GoogleCalendarService`: loads service-account credentials from env/file, runs free/busy checks, creates/updates pending hold events, creates/updates confirmed appointment events, releases pending holds, and records sync failures.
 
 Current behavior:
 
-- vCita scheduling checks active artist, pending, and shared-vCita Google calendars before creating/updating the vCita booking.
+- vCita scheduling checks active artist, pending, and shared-vCita Google calendars before creating/updating the vCita booking. If the intake has its own active pending hold, that hold is ignored during final availability checks so payment finalization can use the reserved slot.
 - If Google Calendar has a conflict, scheduling stops before vCita is modified and Telegram receives the error.
 - After vCita scheduling succeeds, the backend creates or updates confirmed appointment events in the assigned artist calendar and optional shared vCita calendar.
-- If Google event sync fails after vCita succeeds, the vCita booking remains scheduled and the Telegram group receives a Google Calendar warning.
+- If Google event sync fails after vCita succeeds, the vCita booking remains scheduled and the Telegram group receives a Google Calendar warning. If an active pending hold exists, it is kept for manual review instead of being released.
 - Google Calendar credentials are not stored in the Admin panel; the server uses `GOOGLE_SERVICE_ACCOUNT_FILE` or `GOOGLE_SERVICE_ACCOUNT_JSON`.
 
 ### `vcita`
@@ -152,7 +152,7 @@ Key models:
 Key code:
 
 - `VcitaAPIClient`: Bearer-token client for vCita userinfo, staff/services discovery, webhook subscription/listing, client lookup/creation, availability checks, and booking create/update calls.
-- `VcitaSchedulingService`: creates or updates vCita bookings for assigned intakes and stores vCita booking IDs back on `IntakeRequest`.
+- `VcitaSchedulingService`: creates pending Google Calendar holds, creates or updates vCita bookings for assigned intakes, releases pending holds only after final booking and confirmed-calendar sync succeed, and stores vCita booking IDs back on `IntakeRequest`.
 - `VcitaWebhook`: unauthenticated webhook receiver at `/api/v1/webhook/vcita/`.
 - `vcita_smoke_test`: management command that calls a simple vCita endpoint using the active account token.
 
@@ -185,8 +185,8 @@ Implemented deployment assets:
 - `Dockerfile` builds the Django/gunicorn image and runs `docker/start-web.sh`.
 - `docker/start-web.sh` runs migrations, collects static files, and starts gunicorn on port `8007`.
 - `docker/start-worker.sh` starts the Celery worker for webhook follow-up tasks.
-- `docker-compose.yml` supports local container runs with backend, Celery worker, Postgres, and Redis.
-- `docker-compose.prod.yml` runs backend image, Celery worker, Postgres, Redis, and nginx.
+- `docker-compose.yml` supports local container runs with backend, Celery worker, Celery Beat, Postgres, and Redis.
+- `docker-compose.prod.yml` runs backend image, Celery worker, Celery Beat, Postgres, Redis, and nginx.
 - `nginx/default.conf` listens on port `80` and proxies all traffic to the backend container.
 - `.github/workflows/pipeline.yml` builds and pushes the Docker image to Docker Hub on pushes to `main`.
 - The EC2 deploy job is gated by `ENABLE_EC2_DEPLOY=true`; it copies `docker-compose.prod.yml` and `nginx/default.conf` over SCP, then pulls the latest Docker Hub image and restarts `docker-compose.prod.yml` over SSH. EC2 does not need GitHub repo credentials for deploy.
@@ -251,10 +251,11 @@ Artist assignment rules:
 - Hoss can approve an AI draft reply, reject, choose Edit Reply, or assign the active intake to an artist.
 - Edit Reply keeps the intake waiting for human action and tells Hoss to send the final client message with `/reply REQUEST_ID message text` in the shared group.
 - Hoss can choose Edit Price and then update internal approved pricing with `/price REQUEST_ID price | optional note`.
-- Hoss schedules an assigned intake with `/schedule REQUEST_ID SERVICE_CODE YYYY-MM-DD HH:MM`, for example `/schedule 12 OCH 2026-09-04 14:30`.
+- Hoss/Nina can create a pending appointment hold with `/hold REQUEST_ID SERVICE_CODE YYYY-MM-DD HH:MM`, for example `/hold 12 OCH 2026-09-04 14:30`. This blocks the Pending Appointments Google Calendar while payment/final confirmation is outstanding.
+- When a pending hold reaches review time, the Celery Beat scheduled task sends a Telegram card with Keep Hold and Release Hold buttons. After one valid click, the original card is edited with a status line, the buttons disappear, and the bot sends a short confirmation message. `/keephold REQUEST_ID` and `/releasehold REQUEST_ID` remain command fallbacks.
 - The Schedule button appears when AI provided date/time, but it now shows service-code guidance instead of silently using a default service.
 - Hoss can view human decision history with `/logs`, `/logs REQUEST_ID`, `/logs --20`, or `/logs REQUEST_ID --20`; default limit is 10 and max is 30.
-- Schedule commands resolve `SERVICE_CODE` through active `VcitaService` rows, use the vCita account timezone, defaulting to `Europe/Amsterdam`, and store date/time plus service snapshot on the intake.
+- Hold and schedule commands resolve `SERVICE_CODE` through active `VcitaService` rows, use the vCita account timezone, defaulting to `Europe/Amsterdam`, and store date/time plus service snapshot on the intake.
 - If Hoss tries to schedule before assigning an artist, the bot replies: `Please assign an artist first, then schedule this request.`
 - Price updates are internal only and do not send anything to the client.
 - Older Telegram cards using the previous `manual` callback action are still routed into the Edit Reply flow.
@@ -263,7 +264,7 @@ Artist assignment rules:
 - Assignment applies to the active `IntakeRequest`, not permanently to the whole lead.
 - After assignment, future client messages for that intake route to the assigned artist's private Telegram chat.
 - Assigned artist replies are sent automatically to the client through the original channel.
-- Successful vCita scheduling notifies the shared Telegram group, the assigned artist privately, and the client through the original channel. If Google Calendar mappings are active, scheduling also checks mapped calendars before vCita and syncs confirmed events after vCita.
+- Successful pending hold creation notifies the shared Telegram group and assigned artist privately. Successful vCita scheduling notifies the shared Telegram group, the assigned artist privately, and the client through the original channel. If Google Calendar mappings are active, scheduling also checks mapped calendars before vCita and syncs confirmed events after vCita.
 - Artist private replies should support text and media/files.
 - Current implementation supports Telegram text/photo/document private replies. WhatsApp receives media through Meta link sends; Outlook receives media as links in the email reply.
 

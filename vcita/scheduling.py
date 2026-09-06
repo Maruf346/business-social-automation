@@ -8,7 +8,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from django.db import transaction
 
 from google_calendar.services import GoogleCalendarError, GoogleCalendarService
-from intake.models import IntakeRequest, PaymentStatus, ScheduleStatus
+from intake.models import IntakeRequest, PaymentStatus, PendingHoldStatus, ScheduleStatus
 from lead.models import Lead
 
 from .api import VcitaAPIClient, VcitaAPIError
@@ -35,7 +35,16 @@ class VcitaScheduleResult:
     google_checked_calendar_ids: list[str]
     google_synced_event_ids: list[str]
     google_sync_warnings: list[str]
-
+@dataclass(frozen=True)
+class VcitaHoldResult:
+    intake: IntakeRequest
+    account: VcitaAccount
+    service: VcitaService
+    requested_date: str
+    requested_time: str
+    expires_at: datetime
+    google_synced_event_ids: list[str]
+    google_sync_warnings: list[str]
 
 class VcitaSchedulingService:
     DEFAULT_DURATION_MINUTES = 60
@@ -159,6 +168,11 @@ class VcitaSchedulingService:
             service_name=service.name,
             duration_minutes=self.DEFAULT_DURATION_MINUTES,
         )
+        if google_sync.warnings:
+            release_warnings = self._keep_pending_hold_after_google_warning(intake, google_sync.warnings)
+        else:
+            release_warnings = self._release_pending_hold_after_final_booking(intake, google_calendar)
+        google_warnings = [*google_sync.warnings, *release_warnings]
 
         return VcitaScheduleResult(
             intake=intake,
@@ -171,9 +185,133 @@ class VcitaSchedulingService:
             was_reschedule=was_reschedule,
             google_checked_calendar_ids=google_checked_calendar_ids,
             google_synced_event_ids=google_sync.synced_event_ids,
+            google_sync_warnings=google_warnings,
+        )
+
+
+    def hold_intake(
+        self,
+        intake: IntakeRequest,
+        appointment_date: str | None = None,
+        appointment_time: str | None = None,
+        service_code: str = "",
+    ) -> VcitaHoldResult:
+        account = self._require_account()
+        client = self._require_client()
+        appointment_date = (appointment_date or intake.appointment_date).strip()
+        appointment_time = (appointment_time or intake.appointment_time).strip()
+        start_local = self._parse_local_start(appointment_date, appointment_time, account.default_timezone)
+
+        if not intake.assigned_artist_id:
+            raise VcitaSchedulingError("Please assign an artist first, then hold this request.")
+        if not account.business_uid:
+            raise VcitaSchedulingError("vCita business UID is missing. Sync user info or add it in the Admin panel.")
+
+        service = self._get_service(account, service_code)
+        self._get_or_create_client_uid(
+            intake.lead,
+            account,
+            client,
+            staff_uid=intake.assigned_artist.vcita_staff_uid if intake.assigned_artist else "",
+        )
+
+        google_calendar = GoogleCalendarService()
+        try:
+            google_sync = google_calendar.hold_pending_appointment(
+                intake=intake,
+                start_at=start_local,
+                service_code=service.code,
+                service_name=service.name,
+                duration_minutes=self.DEFAULT_DURATION_MINUTES,
+            )
+        except GoogleCalendarError as exc:
+            self._mark_pending_hold_failed(intake, str(exc))
+            raise VcitaSchedulingError(str(exc)) from exc
+
+        expires_at = start_local + timedelta(days=7)
+        with transaction.atomic():
+            intake.pending_hold_status = PendingHoldStatus.ACTIVE
+            intake.pending_hold_date = appointment_date
+            intake.pending_hold_time = appointment_time
+            intake.pending_hold_service = service
+            intake.pending_hold_service_code = service.code
+            intake.pending_hold_service_name = service.name
+            intake.pending_hold_service_uid = service.vcita_service_uid
+            intake.pending_hold_expires_at = expires_at
+            intake.pending_hold_released_at = None
+            intake.pending_hold_finalized_at = None
+            intake.pending_hold_error = ""
+            intake.payment_status = PaymentStatus.PENDING
+            intake.save(
+                update_fields=[
+                    "pending_hold_status",
+                    "pending_hold_date",
+                    "pending_hold_time",
+                    "pending_hold_service",
+                    "pending_hold_service_code",
+                    "pending_hold_service_name",
+                    "pending_hold_service_uid",
+                    "pending_hold_expires_at",
+                    "pending_hold_released_at",
+                    "pending_hold_finalized_at",
+                    "pending_hold_error",
+                    "payment_status",
+                    "updated_at",
+                ]
+            )
+
+        return VcitaHoldResult(
+            intake=intake,
+            account=account,
+            service=service,
+            requested_date=appointment_date,
+            requested_time=appointment_time,
+            expires_at=expires_at,
+            google_synced_event_ids=google_sync.synced_event_ids,
             google_sync_warnings=google_sync.warnings,
         )
 
+    def keep_pending_hold(self, intake: IntakeRequest, days: int = 7) -> datetime:
+        if intake.pending_hold_status != PendingHoldStatus.ACTIVE:
+            raise VcitaSchedulingError("This request does not have an active pending hold.")
+        now = datetime.now(dt_timezone.utc)
+        intake.pending_hold_expires_at = now + timedelta(days=days)
+        intake.pending_hold_review_notified_at = None
+        intake.pending_hold_error = ""
+        intake.save(
+            update_fields=[
+                "pending_hold_expires_at",
+                "pending_hold_review_notified_at",
+                "pending_hold_error",
+                "updated_at",
+            ]
+        )
+        return intake.pending_hold_expires_at
+
+    def release_pending_hold_manually(self, intake: IntakeRequest) -> list[str]:
+        if intake.pending_hold_status != PendingHoldStatus.ACTIVE:
+            raise VcitaSchedulingError("This request does not have an active pending hold.")
+        google_calendar = GoogleCalendarService()
+        release_result = google_calendar.release_pending_hold(intake)
+        if release_result.warnings:
+            message = " | ".join(release_result.warnings)
+            intake.pending_hold_error = message
+            intake.save(update_fields=["pending_hold_error", "updated_at"])
+            raise VcitaSchedulingError("Pending hold could not be released: " + message)
+
+        now = datetime.now(dt_timezone.utc)
+        intake.pending_hold_status = PendingHoldStatus.RELEASED
+        intake.pending_hold_released_at = now
+        intake.pending_hold_error = ""
+        intake.save(
+            update_fields=[
+                "pending_hold_status",
+                "pending_hold_released_at",
+                "pending_hold_error",
+                "updated_at",
+            ]
+        )
+        return release_result.synced_event_ids
     def _get_service(self, account: VcitaAccount, service_code: str) -> VcitaService:
         normalized_code = (service_code or "").strip().upper()
         if not normalized_code:
@@ -416,6 +554,42 @@ class VcitaSchedulingService:
             if slot_start.astimezone(dt_timezone.utc) == expected_utc:
                 return True
         return False
+
+    @staticmethod
+    def _mark_pending_hold_failed(intake: IntakeRequest, message: str) -> None:
+        intake.pending_hold_status = PendingHoldStatus.FAILED
+        intake.pending_hold_error = message
+        intake.save(update_fields=["pending_hold_status", "pending_hold_error", "updated_at"])
+
+    @staticmethod
+    def _keep_pending_hold_after_google_warning(intake: IntakeRequest, warnings: list[str]) -> list[str]:
+        if intake.pending_hold_status != PendingHoldStatus.ACTIVE:
+            return []
+        now = datetime.now(dt_timezone.utc)
+        intake.pending_hold_status = PendingHoldStatus.FINALIZED
+        intake.pending_hold_finalized_at = now
+        intake.pending_hold_error = "Final vCita booking was created, but confirmed Google Calendar sync needs review: " + " | ".join(warnings)
+        intake.save(update_fields=["pending_hold_status", "pending_hold_finalized_at", "pending_hold_error", "updated_at"])
+        return ["Pending hold was not released because confirmed Google Calendar sync needs review."]
+
+    @staticmethod
+    def _release_pending_hold_after_final_booking(intake: IntakeRequest, google_calendar: GoogleCalendarService) -> list[str]:
+        if intake.pending_hold_status != PendingHoldStatus.ACTIVE:
+            return []
+        release_result = google_calendar.release_pending_hold(intake)
+        now = datetime.now(dt_timezone.utc)
+        if release_result.warnings:
+            intake.pending_hold_status = PendingHoldStatus.FINALIZED
+            intake.pending_hold_finalized_at = now
+            intake.pending_hold_error = " | ".join(release_result.warnings)
+            intake.save(update_fields=["pending_hold_status", "pending_hold_finalized_at", "pending_hold_error", "updated_at"])
+            return ["Pending hold could not be released: " + " | ".join(release_result.warnings)]
+        intake.pending_hold_status = PendingHoldStatus.RELEASED
+        intake.pending_hold_finalized_at = now
+        intake.pending_hold_released_at = now
+        intake.pending_hold_error = ""
+        intake.save(update_fields=["pending_hold_status", "pending_hold_finalized_at", "pending_hold_released_at", "pending_hold_error", "updated_at"])
+        return []
 
     @staticmethod
     def _format_api_error(exc: VcitaAPIError) -> str:

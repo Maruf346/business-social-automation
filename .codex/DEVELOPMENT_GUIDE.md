@@ -1,6 +1,6 @@
 # Development Guide
 
-Last reviewed: 2026-09-05
+Last reviewed: 2026-09-06
 
 ## Local Environment
 
@@ -144,6 +144,9 @@ Current important variables:
 - `GUNICORN_THREADS`
 - `GUNICORN_TIMEOUT`
 - `CELERY_WORKER_CONCURRENCY`
+- `ENABLE_PENDING_HOLD_REVIEW_BEAT`
+- `CELERY_PENDING_HOLD_REVIEW_INTERVAL_MINUTES`
+- `CELERY_PENDING_HOLD_REVIEW_LIMIT`
 - `CELERY_LOG_LEVEL`
 - `GOOGLE_SERVICE_ACCOUNT_FILE`
 - `GOOGLE_SERVICE_ACCOUNT_JSON`
@@ -174,7 +177,7 @@ Models:
 - `IntakeRequest`: latest known tattoo request state.
 - `AIAnalysis`: raw and normalized AI response snapshots.
 - `OutboundAction`: pending/sent/failed audit records for client reply attempts.
-- Current intake state stores AI summary, AI suggested price, Hoss-approved price, price note, approver, approval timestamp, AI-proposed appointment date/time, chosen vCita service snapshot, schedule state, vCita booking UID, and payment state.
+- Current intake state stores AI summary, AI suggested price, Hoss-approved price, price note, approver, approval timestamp, AI-proposed appointment date/time, pending hold service/date/time/expiry/review state, chosen vCita service snapshot, schedule state, vCita booking UID, and payment state.
 - Admin panel for `IntakeRequest` is organized for local testing: summary, draft reply, AI suggested price, approved price, price note, appointment date, and appointment time can be edited directly before sending a Telegram review card.
 
 Service:
@@ -216,17 +219,25 @@ Current behavior:
 - `GET /api/v1/webhook/vcita/` returns a health response.
 - `POST /api/v1/webhook/vcita/` stores the raw webhook payload in `VcitaWebhookEvent`.
 - If `VcitaAccount.webhook_secret` is set, vCita webhook calls must include the same value as `?secret=...` or `X-Vcita-Webhook-Secret`.
-- Payment/cancel/reschedule webhook events update an `IntakeRequest` only when the payload contains a booking/appointment/meeting ID matching `IntakeRequest.vcita_booking_uid`.
+- Payment/cancel/reschedule webhook events update an `IntakeRequest` when the payload contains a booking/appointment/meeting ID matching `IntakeRequest.vcita_booking_uid`.
+- Paid/recorded payment webhooks can also auto-finalize a pending hold when the payload identifies exactly one active pending request by request ID, payment reference, or vCita client UID. If final vCita booking fails, the pending hold remains active and Telegram is notified.
 - Unknown vCita webhook payloads are stored only so real live shapes can be inspected later.
 
 Scheduling:
 
 - AI returns `date` as `YYYY-MM-DD` and `time` as `HH:MM`; the backend stores those exact values as `appointment_date` and `appointment_time`.
 - The Telegram Schedule button appears only when both fields are present.
+- Hoss/Nina creates a pending hold with `/hold REQUEST_ID SERVICE_CODE YYYY-MM-DD HH:MM`, for example `/hold 12 OCH 2026-09-04 14:30`. This blocks the Pending Appointments Google Calendar for up to one week while payment/final confirmation is outstanding.
+- After one week, Celery Beat automatically runs `intake.notify_pending_holds` on the configured interval. The task calls `notify_pending_holds`, asks the AI summary endpoint when available, and falls back to the stored intake summary.
+- Manual fallback: run `python manage.py notify_pending_holds` from the server/worker environment to send due review cards.
+- The review card includes Keep Hold and Release Hold buttons. After one valid click, the backend edits the original Telegram card with a status line, removes the buttons, and sends a short confirmation message.
+- Hoss/Nina can also keep a reviewed hold with `/keephold REQUEST_ID` or release it with `/releasehold REQUEST_ID`.
 - Hoss schedules manually with `/schedule REQUEST_ID SERVICE_CODE YYYY-MM-DD HH:MM`, for example `/schedule 12 OCH 2026-09-04 14:30`.
-- Scheduling requires the intake to be assigned to an artist first.
+- Holding or scheduling requires the intake to be assigned to an artist first.
 - If the Schedule button is pressed, Telegram shows the available service codes and asks Hoss to run the full `/schedule` command. If scheduling is attempted before assignment, Telegram tells Hoss to assign an artist first.
+- Successful hold creation stores pending hold service/date/time/expiry state, creates/updates a Pending Appointments Google Calendar event, marks payment as pending, notifies the group, and notifies the assigned artist privately.
 - Successful scheduling creates or updates the vCita booking using the selected `VcitaService`, stores `vcita_booking_uid` plus service code/name/UID snapshot, notifies the group, sends the client a scheduling message through the original channel, and notifies the assigned artist privately. If active Google Calendar mappings exist, the backend checks conflicts first and syncs confirmed Google events after vCita succeeds.
+- If a final schedule is created from a pending hold, the pending hold is ignored during conflict checking for that same request. The pending hold is released only after final vCita booking and confirmed Google Calendar sync succeed. If final booking fails, the pending hold remains active and Hoss/Nina are notified.
 - vCita client creation sends a flat payload with explicit `first_name` and `last_name`; do not wrap it in `{"client": ...}` because vCita rejects that shape as a blank first name. When the lead only has email/phone, fallback names are generated as `Tattoo Lead REQUEST_ID`.
 - vCita client lookup uses `/platform/v1/clients` with `search_by=email` or `search_by=phone` before creating a new client.
 - Fake/admin-created intakes with `source=other` can test Telegram/vCita flow, but client notification will report `Unsupported intake source: other`.
@@ -279,7 +290,7 @@ Scheduling behavior:
 - Before the vCita API write, active Google calendars are checked for conflicts: assigned artist calendar, pending calendar, and optional shared vCita calendar.
 - If a conflict is found, scheduling stops and Telegram shows a clear message.
 - After vCita succeeds, confirmed Google events are created/updated on the assigned artist calendar and optional shared vCita calendar.
-- If Google sync fails after vCita succeeds, Telegram shows a Google Calendar warning and the failure is stored in `GoogleCalendarEvent`.
+- If Google sync fails after vCita succeeds, Telegram shows a Google Calendar warning and the failure is stored in `GoogleCalendarEvent`. When the request had an active pending hold, that hold remains for manual review instead of being released.
 
 After Google Calendar model changes:
 
@@ -324,7 +335,7 @@ Outlook:
 - Subscription create/renew payloads include `expirationDateTime` normalized to UTC `Z` format.
 - If Microsoft Graph rejects subscription create/renew, the Admin panel save no longer crashes; the subscription row is marked `FAILED` and `sync_error` stores the Graph response.
 - Live end-to-end behavior still requires valid Graph credentials and webhook subscription data.
-- Production Outlook/AI follow-up tasks require the `worker` service to be running and the Python `redis` package installed.
+- Production Outlook/AI follow-up tasks require the `worker` service to be running and the Python `redis` package installed. Pending hold review automation also requires the `beat` service to be running.
 
 Telegram:
 
@@ -332,12 +343,14 @@ Telegram:
 - `/whoami` returns Telegram user/chat IDs and stores private chat ID for registered artists.
 - Callback query handling supports Hoss-only approve/reject/Edit Reply/assign actions.
 - Callback query handling supports Hoss-only Edit Price.
-- Callback query handling supports Hoss-only Schedule guidance when AI-proposed date/time exists.
+- Callback query handling supports Hoss-only Hold/Schedule guidance when AI-proposed date/time exists.
 - Shared group actions must be authorized to Hoss only.
 - Edit Reply tells Hoss to send `/reply REQUEST_ID message text` in the group; only an artist with `can_approve=True` can send that command for an unassigned intake.
 - Edit Price tells Hoss to send `/price REQUEST_ID price | optional note`; this updates internal pricing only.
+- Pending hold format is `/hold REQUEST_ID SERVICE_CODE YYYY-MM-DD HH:MM`.
+- Pending hold review cards use Keep Hold and Release Hold buttons. Command fallbacks are `/keephold REQUEST_ID` and `/releasehold REQUEST_ID`.
 - Manual scheduling format is `/schedule REQUEST_ID SERVICE_CODE YYYY-MM-DD HH:MM`.
-- If Hoss tries to schedule before assignment, the bot tells him to assign an artist first.
+- If Hoss/Nina tries to hold or schedule before assignment, the bot tells them to assign an artist first.
 - Hoss-only logs command supports `/logs`, `/logs REQUEST_ID`, `/logs --20`, and `/logs REQUEST_ID --20`.
 - `/logs` reads `HumanDecision` records, defaults to 10 rows, and rejects limits above 30.
 - Older cards with the previous `manual` callback action are treated as Edit Reply for backward compatibility.

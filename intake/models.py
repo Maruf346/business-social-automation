@@ -37,6 +37,10 @@ class HumanDecisionAction(models.TextChoices):
     ASSIGN_ARTIST = "assign_artist", "Assign Artist"
     EDIT_REPLY = "edit_reply", "Edit Reply"
     EDIT_PRICE = "edit_price", "Edit Price"
+    HOLD_APPOINTMENT = "hold_appointment", "Hold Appointment"
+    KEEP_HOLD = "keep_hold", "Keep Hold"
+    RELEASE_HOLD = "release_hold", "Release Hold"
+    PENDING_HOLD_REVIEW = "pending_hold_review", "Pending Hold Review"
     SCHEDULE = "schedule", "Schedule"
     ARTIST_REPLY = "artist_reply", "Artist Reply"
 
@@ -79,6 +83,14 @@ class PaymentStatus(models.TextChoices):
     FAILED = "failed", "Failed"
     REFUNDED = "refunded", "Refunded"
     CANCELLED = "cancelled", "Cancelled"
+
+
+class PendingHoldStatus(models.TextChoices):
+    NONE = "none", "None"
+    ACTIVE = "active", "Active"
+    FINALIZED = "finalized", "Finalized"
+    RELEASED = "released", "Released"
+    FAILED = "failed", "Failed"
 
 
 class ArtistProfile(models.Model):
@@ -207,6 +219,29 @@ class IntakeRequest(models.Model):
     scheduled_service_code = models.CharField(max_length=30, blank=True, default="")
     scheduled_service_name = models.CharField(max_length=255, blank=True, default="")
     scheduled_service_uid = models.CharField(max_length=255, blank=True, default="")
+    pending_hold_status = models.CharField(
+        max_length=30,
+        choices=PendingHoldStatus.choices,
+        default=PendingHoldStatus.NONE,
+        db_index=True,
+    )
+    pending_hold_date = models.CharField(max_length=10, blank=True, default="")
+    pending_hold_time = models.CharField(max_length=5, blank=True, default="")
+    pending_hold_service = models.ForeignKey(
+        "vcita.VcitaService",
+        on_delete=models.SET_NULL,
+        related_name="pending_hold_intakes",
+        blank=True,
+        null=True,
+    )
+    pending_hold_service_code = models.CharField(max_length=30, blank=True, default="")
+    pending_hold_service_name = models.CharField(max_length=255, blank=True, default="")
+    pending_hold_service_uid = models.CharField(max_length=255, blank=True, default="")
+    pending_hold_expires_at = models.DateTimeField(blank=True, null=True)
+    pending_hold_review_notified_at = models.DateTimeField(blank=True, null=True)
+    pending_hold_released_at = models.DateTimeField(blank=True, null=True)
+    pending_hold_finalized_at = models.DateTimeField(blank=True, null=True)
+    pending_hold_error = models.TextField(blank=True, default="")
     vcita_booking_uid = models.CharField(max_length=255, blank=True, default="", db_index=True)
     schedule_status = models.CharField(
         max_length=30,
@@ -237,6 +272,8 @@ class IntakeRequest(models.Model):
             models.Index(fields=["source"]),
             models.Index(fields=["schedule_status"]),
             models.Index(fields=["payment_status"]),
+            models.Index(fields=["pending_hold_status"]),
+            models.Index(fields=["pending_hold_expires_at"]),
         ]
 
     def __str__(self):

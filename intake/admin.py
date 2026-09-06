@@ -35,6 +35,8 @@ class IntakeRequestAdmin(admin.ModelAdmin):
         "appointment_time",
         "scheduled_service_code",
         "schedule_status",
+        "pending_hold_status",
+        "pending_hold_expires_at",
         "payment_status",
         "confidence_level",
         "is_active",
@@ -47,6 +49,7 @@ class IntakeRequestAdmin(admin.ModelAdmin):
         "assigned_artist",
         "source",
         "schedule_status",
+        "pending_hold_status",
         "payment_status",
         "is_active",
         "created_at",
@@ -65,6 +68,10 @@ class IntakeRequestAdmin(admin.ModelAdmin):
         "scheduled_service_code",
         "scheduled_service_name",
         "scheduled_service_uid",
+        "pending_hold_service_code",
+        "pending_hold_service_name",
+        "pending_hold_service_uid",
+        "pending_hold_error",
     )
     readonly_fields = ("latest_raw_ai_response", "created_at", "updated_at")
     raw_id_fields = (
@@ -74,6 +81,7 @@ class IntakeRequestAdmin(admin.ModelAdmin):
         "outlook_account",
         "last_incoming_message",
         "scheduled_service",
+        "pending_hold_service",
     )
     fieldsets = (
         (
@@ -153,6 +161,18 @@ class IntakeRequestAdmin(admin.ModelAdmin):
                     "schedule_status",
                     "schedule_error",
                     "vcita_booking_uid",
+                    "pending_hold_status",
+                    "pending_hold_date",
+                    "pending_hold_time",
+                    "pending_hold_service",
+                    "pending_hold_service_code",
+                    "pending_hold_service_name",
+                    "pending_hold_service_uid",
+                    "pending_hold_expires_at",
+                    "pending_hold_review_notified_at",
+                    "pending_hold_released_at",
+                    "pending_hold_finalized_at",
+                    "pending_hold_error",
                     "payment_status",
                     "payment_reference",
                 )
