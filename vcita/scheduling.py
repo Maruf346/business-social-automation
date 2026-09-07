@@ -82,6 +82,13 @@ class VcitaSchedulingService:
             client,
             staff_uid=booking_staff_uid,
         )
+        matter_uid = self._get_or_create_matter_uid(
+            intake=intake,
+            account=account,
+            client=client,
+            client_uid=vcita_client_uid,
+            required=False,
+        )
         was_reschedule = bool(intake.vcita_booking_uid)
         self._check_availability(
             client=client,
@@ -107,6 +114,7 @@ class VcitaSchedulingService:
             service=service,
             client_uid=vcita_client_uid,
             staff_uid=booking_staff_uid,
+            matter_uid=matter_uid,
             start_local=start_local,
         )
 
@@ -124,6 +132,9 @@ class VcitaSchedulingService:
             ) from exc
 
         booking_uid = self._extract_uid(response, keys=("booking_id", "booking_uid", "appointment_id", "uid", "id"))
+        response_matter_uid = self._extract_uid(response, keys=("matter_uid", "matter_id", "engagement_uid", "engagement_id"))
+        if response_matter_uid and not matter_uid:
+            matter_uid = response_matter_uid
         if not booking_uid and was_reschedule:
             booking_uid = intake.vcita_booking_uid
         if not booking_uid:
@@ -137,6 +148,8 @@ class VcitaSchedulingService:
             intake.scheduled_service_code = service.code
             intake.scheduled_service_name = service.name
             intake.scheduled_service_uid = service.vcita_service_uid
+            if matter_uid and not intake.vcita_matter_uid:
+                intake.vcita_matter_uid = matter_uid
             intake.vcita_booking_uid = booking_uid
             intake.schedule_status = ScheduleStatus.RESCHEDULED if was_reschedule else ScheduleStatus.SCHEDULED
             intake.schedule_error = ""
@@ -150,6 +163,7 @@ class VcitaSchedulingService:
                     "scheduled_service_code",
                     "scheduled_service_name",
                     "scheduled_service_uid",
+                    "vcita_matter_uid",
                     "vcita_booking_uid",
                     "schedule_status",
                     "schedule_error",
@@ -205,11 +219,18 @@ class VcitaSchedulingService:
             raise VcitaSchedulingError("vCita business UID is missing. Sync user info or add it in the Admin panel.")
 
         service = self._get_service(account, service_code)
-        self._get_or_create_client_uid(
+        vcita_client_uid = self._get_or_create_client_uid(
             intake.lead,
             account,
             client,
             staff_uid=intake.assigned_artist.vcita_staff_uid if intake.assigned_artist else "",
+        )
+        self._get_or_create_matter_uid(
+            intake=intake,
+            account=account,
+            client=client,
+            client_uid=vcita_client_uid,
+            required=True,
         )
 
         google_calendar = GoogleCalendarService()
@@ -403,6 +424,47 @@ class VcitaSchedulingService:
         lead.save(update_fields=["vcita_client_uid", "updated_at"])
         return client_uid
 
+    def _get_or_create_matter_uid(
+        self,
+        intake: IntakeRequest,
+        account: VcitaAccount,
+        client: VcitaAPIClient,
+        client_uid: str,
+        required: bool = False,
+    ) -> str:
+        if intake.vcita_matter_uid:
+            return intake.vcita_matter_uid
+
+        field_uid = (account.vcita_matter_name_field_uid or "").strip()
+        if not field_uid:
+            if required:
+                raise VcitaSchedulingError(
+                    "vCita matter name field UID is missing. Add it in the Admin panel before creating payment-dependent holds."
+                )
+            return ""
+
+        payload = self._build_matter_payload(intake, field_uid)
+        try:
+            response = client.create_matter(client_uid, payload)
+        except VcitaAPIError as exc:
+            if required:
+                raise VcitaSchedulingError(
+                    self._format_api_error(exc),
+                    status_code=exc.status_code,
+                    response_body=exc.response_body,
+                ) from exc
+            return ""
+
+        matter_uid = self._extract_uid(response, keys=("matter_uid", "matter_id", "uid", "id"))
+        if not matter_uid:
+            if required:
+                raise VcitaSchedulingError("vCita matter creation did not return a matter UID.")
+            return ""
+
+        intake.vcita_matter_uid = matter_uid
+        intake.save(update_fields=["vcita_matter_uid", "updated_at"])
+        return matter_uid
+
     def _check_availability(
         self,
         client: VcitaAPIClient,
@@ -472,6 +534,7 @@ class VcitaSchedulingService:
         service: VcitaService,
         client_uid: str,
         staff_uid: str,
+        matter_uid: str,
         start_local: datetime,
     ) -> dict[str, Any]:
         note_parts = [
@@ -487,7 +550,7 @@ class VcitaSchedulingService:
         if intake.latest_summary:
             note_parts.append(f"Summary: {intake.latest_summary}")
 
-        return {
+        payload = {
             "business_id": account.business_uid,
             "service_id": service.vcita_service_uid,
             "staff_id": staff_uid,
@@ -496,6 +559,32 @@ class VcitaSchedulingService:
             "time_zone": account.default_timezone,
             "status": "scheduled",
             "notes": "\n".join(note_parts),
+        }
+        if matter_uid:
+            payload["matter_uid"] = matter_uid
+        return payload
+
+    @staticmethod
+    def _build_matter_payload(intake: IntakeRequest, matter_name_field_uid: str) -> dict[str, Any]:
+        lead = intake.lead
+        contact = (lead.name or lead.email or lead.phone_number or f"Lead {lead.pk}").strip()
+        matter_name = f"Request #{intake.pk} - {contact}"
+        note_parts = [
+            f"Backend request ID: {intake.pk}",
+            f"Source: {intake.source}",
+            f"Tattoo idea: {intake.tattoo_idea or 'Unclear'}",
+        ]
+        if intake.latest_summary:
+            note_parts.append(f"Summary: {intake.latest_summary}")
+        return {
+            "matter": {
+                "fields": [{
+                    "uid": matter_name_field_uid,
+                    "value": matter_name,
+                }],
+                "note": "\n".join(note_parts),
+                "tags": ["tattoo-hysteria", f"request-{intake.pk}"],
+            }
         }
 
     def _require_account(self) -> VcitaAccount:

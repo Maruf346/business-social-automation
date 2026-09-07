@@ -254,6 +254,7 @@ class IntakeRequest(models.Model):
     pending_hold_released_at = models.DateTimeField(blank=True, null=True)
     pending_hold_finalized_at = models.DateTimeField(blank=True, null=True)
     pending_hold_error = models.TextField(blank=True, default="")
+    vcita_matter_uid = models.CharField(max_length=255, blank=True, default="", db_index=True)
     vcita_booking_uid = models.CharField(max_length=255, blank=True, default="", db_index=True)
     schedule_status = models.CharField(
         max_length=30,
@@ -286,6 +287,7 @@ class IntakeRequest(models.Model):
             models.Index(fields=["payment_status"]),
             models.Index(fields=["pending_hold_status"]),
             models.Index(fields=["pending_hold_expires_at"]),
+            models.Index(fields=["vcita_matter_uid"]),
         ]
 
     def __str__(self):

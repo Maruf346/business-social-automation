@@ -1,6 +1,6 @@
 # Technical Debt and Risks
 
-Last reviewed: 2026-08-29
+Last reviewed: 2026-09-07
 
 ## High Priority
 
@@ -256,24 +256,24 @@ Recommendation:
 
 ### vCita Feasibility Still Needs Live Token and Payload Verification
 
-vCita scaffolding and initial scheduling now exist: `VcitaAccount`, `VcitaWebhookEvent`, `/api/v1/webhook/vcita/`, `VcitaAPIClient`, Admin panel token/userinfo/staff/service actions, `vcita_smoke_test`, and Hoss-only Telegram scheduling.
+vCita scaffolding and scheduling now exist: `VcitaAccount`, `VcitaService`, `VcitaWebhookEvent`, `VcitaFinancialRecord`, `/api/v1/webhook/vcita/`, `VcitaAPIClient`, Admin panel token/userinfo/field/staff/service actions, `vcita_smoke_test`, Hoss/Nina hold commands, and Hoss/Nina scheduling commands.
 
 Risk:
 
 - Full Milestone 2 vCita behavior may depend on unsupported API features or token access level.
-- Webhook payload shape is not yet verified against the client's live vCita account.
+- Webhook payload shape is still not fully guaranteed by public docs, so real client-account webhook payloads must be inspected after subscription. The backend now stores unmatched/ambiguous events and notifies Telegram instead of silently ignoring them.
 - API write capabilities for client creation, booking creation/update, notes, and exact accepted payload field names still need confirmation against the live client token.
 - The webhook receiver can enforce an optional shared secret through `?secret=...` or `X-Vcita-Webhook-Secret`, but vCita's own signature strategy is still unknown.
-- Payment webhook processing is conservative and only updates intakes when a payload contains a booking/appointment/meeting ID matching `IntakeRequest.vcita_booking_uid`.
+- Payment webhook processing now resolves booking IDs, Matter IDs, and financial IDs. If vCita sends only invoice/payment/deposit UID, the backend fetches the corresponding vCita object and reads `matter_uid` before matching `IntakeRequest.vcita_matter_uid`.
 
 Recommendation:
 
 - Add the client's vCita token in the Admin panel as `VcitaAccount`.
 - Run `Sync vCita business info from token`, `Show active vCita staff IDs`, and `Show vCita service IDs`.
-- Save vCita staff UID on each `ArtistProfile` and default service UID on `VcitaAccount`.
+- Save vCita staff UID where applicable, neutral external booking staff UID for TA/TC services, service mappings, and vCita Matter-name field UID in the Admin panel.
 - Test `vcita_smoke_test` and one controlled `/schedule REQUEST_ID YYYY-MM-DD HH:MM` against the live token.
 - Configure vCita webhook to `/api/v1/webhook/vcita/`, preferably with the shared secret query parameter.
-- Inspect real webhook payloads in `VcitaWebhookEvent` and refine payment/status extraction if needed.
+- Inspect real webhook payloads in `VcitaWebhookEvent` and `VcitaFinancialRecord` after live subscription; add a reconciliation command if payment webhooks are missed or delayed.
 
 ## Security Risks
 

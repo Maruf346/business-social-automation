@@ -1,6 +1,6 @@
 # Project Context
 
-Last reviewed: 2026-09-06
+Last reviewed: 2026-09-07
 
 ## Product Goal
 
@@ -29,7 +29,7 @@ This repository does not own the AI implementation itself. An AI engineer is bui
 - Database: SQLite by default for local direct `runserver`; Postgres is supported through `DATABASE_URL` or `POSTGRES_*` env vars and is used by Docker Compose.
 - Deployment: Docker image build, production compose, nginx reverse proxy, Redis service, Celery worker service, Celery Beat service, and optional S3 media storage are now scaffolded.
 - External APIs: Meta WhatsApp Graph API, Microsoft Graph API, Telegram Bot API, external AI API.
-- vCita/inTandem integration: account token storage, webhook capture, service-code mapping, booking create/update, availability checks, and basic payment/status sync exist.
+- vCita/inTandem integration: account token storage, webhook capture, service-code mapping, Matter-per-intake linkage, booking create/update, availability checks, financial record mapping, and payment/status sync exist.
 - Google Calendar integration: service-account based calendar mappings, free/busy conflict checks, pending appointment holds, pending hold release, and confirmed appointment event sync are scaffolded.
 
 Important mismatch: the Milestone 2 note mentions FastAPI, LangChain/LangGraph, PostgreSQL, and AWS. The current repo is Django/DRF/Celery/SQLite. Prefer evolving this Django backend unless a rewrite is explicitly approved.
@@ -64,7 +64,7 @@ AI-backed intake state and analysis history.
 
 Key models:
 
-- `IntakeRequest`: canonical latest tattoo request state for a lead/conversation.
+- `IntakeRequest`: canonical latest tattoo request state for a lead/conversation, including vCita booking UID and vCita Matter UID when mapped.
 - `AIAnalysis`: immutable snapshot of every AI analysis response, linked to the triggering message and intake, including summary, AI suggested price, and AI-proposed appointment date/time.
 - `ArtistProfile`: admin-managed artists, Telegram user IDs, private chat IDs, Hoss-only approval flag, and optional vCita staff UID mapping.
 - `ExternalArtistOffer`: offer/accept/decline/cancel state for external artists before client contact is released.
@@ -147,14 +147,15 @@ vCita integration foundation.
 
 Key models:
 
-- `VcitaAccount`: admin-managed API token, API base URL, business UID/name, legacy default service UID, neutral external booking staff UID, default timezone, and optional webhook secret.
+- `VcitaAccount`: admin-managed API token, API base URL, business UID/name, legacy default service UID, neutral external booking staff UID, vCita Matter-name field UID, default timezone, and optional webhook secret.
 - `VcitaService`: admin-managed service-code mapping from short Telegram code, such as `OCH`, to vCita service UID/display name, with an optional external-booking-staff mode for TA/TC-style services.
-- `VcitaWebhookEvent`: raw webhook event storage, including headers, payload, body, event/entity hints, external id, status, and processing error.
+- `VcitaWebhookEvent`: raw webhook event storage, including headers, payload, body, event/entity hints, external id, status, unmatched/failed/processed state, and processing error.
+- `VcitaFinancialRecord`: stores invoice, deposit, and payment UIDs from vCita, links them to `IntakeRequest` through `vcita_matter_uid`, and keeps amount/currency/status plus raw payload for review.
 
 Key code:
 
-- `VcitaAPIClient`: Bearer-token client for vCita userinfo, staff/services discovery, webhook subscription/listing, client lookup/creation, availability checks, and booking create/update calls.
-- `VcitaSchedulingService`: creates pending Google Calendar holds, creates or updates vCita bookings for assigned intakes, resolves assigned-vs-neutral vCita staff ownership per service, releases pending holds only after final booking and confirmed-calendar sync succeed, and stores vCita booking IDs back on `IntakeRequest`.
+- `VcitaAPIClient`: Bearer-token client for vCita userinfo, field/staff/services discovery, webhook subscription/listing, client lookup/creation, Matter creation, financial object lookup, availability checks, and booking create/update calls.
+- `VcitaSchedulingService`: creates pending Google Calendar holds, creates or updates vCita bookings for assigned intakes, creates/stores vCita Matter UIDs when configured, passes `matter_uid` to booking creation when available, resolves assigned-vs-neutral vCita staff ownership per service, releases pending holds only after final booking and confirmed-calendar sync succeed, and stores vCita booking IDs back on `IntakeRequest`.
 - `VcitaWebhook`: unauthenticated webhook receiver at `/api/v1/webhook/vcita/`.
 - `vcita_smoke_test`: management command that calls a simple vCita endpoint using the active account token.
 

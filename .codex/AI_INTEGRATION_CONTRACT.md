@@ -271,6 +271,7 @@ Recommended `existing_db_state`:
     "scheduled_date": "",
     "scheduled_time": "",
     "schedule_status": "not_scheduled",
+    "vcita_matter_uid": "",
     "vcita_booking_uid": "",
     "payment_status": "unknown",
     "status": "collecting_info"
@@ -315,7 +316,8 @@ Backend should tolerate partial AI responses but should validate critical fields
 - Telegram review cards show stored summary, AI suggested price, approved price, price note, and draft reply.
 - Telegram review cards show AI-proposed `date`/`time` and expose a Schedule button only when both are present.
 - Hoss can update internal approved price with `/price REQUEST_ID price | optional note`; this does not send anything to the client.
-- Hoss can schedule with `/schedule REQUEST_ID SERVICE_CODE YYYY-MM-DD HH:MM`; only Hoss can run this command.
+- Hoss can schedule with `/schedule REQUEST_ID SERVICE_CODE YYYY-MM-DD HH:MM`; only Hoss/Nina-style approvers can run this command.
+- vCita Matter UID is included in backend state when available so payment/invoice/deposit webhooks can map back to the correct request.
 - Assigned artist replies bypass AI and are sent to the client through the original channel.
 
 ## Open Implementation Questions

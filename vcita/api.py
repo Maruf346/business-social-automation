@@ -42,6 +42,10 @@ class VcitaAPIClient:
     def list_services(self, business_uid: str) -> dict:
         return self.get("/platform/v1/services", params={"business_id": business_uid})
 
+    def list_fields(self, business_uid: str = "") -> dict:
+        params = {"business_id": business_uid} if business_uid else None
+        return self.get("/platform/v1/fields", params=params)
+
     def search_clients(self, query: str, search_by: str = "") -> dict:
         params = {"search_term": query}
         if search_by:
@@ -50,6 +54,18 @@ class VcitaAPIClient:
 
     def create_client(self, payload: dict[str, Any]) -> dict:
         return self.post("/platform/v1/clients", json=payload)
+
+    def create_matter(self, client_uid: str, payload: dict[str, Any]) -> dict:
+        return self.post(f"/business/clients/v1/contacts/{client_uid}/matters", json=payload)
+
+    def get_payment(self, payment_uid: str) -> dict:
+        return self.get(f"/business/payments/v1/payments/{payment_uid}")
+
+    def get_invoice(self, invoice_uid: str) -> dict:
+        return self.get(f"/business/payments/v1/invoices/{invoice_uid}")
+
+    def get_deposit(self, deposit_uid: str) -> dict:
+        return self.get(f"/business/payments/v1/deposits/{deposit_uid}")
 
     def get_availability_slots(self, params: dict[str, Any]) -> dict:
         return self.get("/v3/scheduling/availability_slots", params=params)

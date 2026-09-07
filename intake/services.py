@@ -108,6 +108,7 @@ class IntakeStateService:
                 "pending_hold_review_notified_at": intake.pending_hold_review_notified_at.isoformat() if intake.pending_hold_review_notified_at else "",
                 "pending_hold_error": intake.pending_hold_error,
                 "schedule_status": cls._choice_value(intake.schedule_status),
+                "vcita_matter_uid": intake.vcita_matter_uid,
                 "vcita_booking_uid": intake.vcita_booking_uid,
                 "payment_status": cls._choice_value(intake.payment_status),
             },

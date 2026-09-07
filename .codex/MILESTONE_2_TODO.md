@@ -1,12 +1,12 @@
 # Milestone 2 TODO
 
-Last updated: 2026-09-06
+Last updated: 2026-09-07
 
 This checklist tracks what is left after the current vCita, Telegram, Outlook, WhatsApp, AI, and Google Calendar work. Use this file as the working TODO list; update checkboxes as each item is completed and verified.
 ## Next Recommended Order
 
 1. Deploy the latest backend image and run migrations, including `intake.0010` for external artist offers.
-2. Verify Admin panel setup: active vCita account, neutral external booking staff UID, mapped vCita services, artist Telegram IDs/chat IDs, vCita staff IDs where needed, and Google Calendar mappings.
+2. Verify Admin panel setup: active vCita account, vCita Matter-name field UID, neutral external booking staff UID, mapped vCita services, artist Telegram IDs/chat IDs, vCita staff IDs where needed, and Google Calendar mappings.
 3. Test Telegram external artist offer flow end to end with one non-approver artist.
 4. Test current scheduling flow with `/schedule REQUEST_ID SERVICE_CODE YYYY-MM-DD HH:MM` and Google Calendar conflict checks.
 5. Test pending hold to payment webhook to final scheduling, after vCita webhook subscriptions are active.
@@ -40,6 +40,7 @@ This checklist tracks what is left after the current vCita, Telegram, Outlook, W
   - [ ] `TN`
   - [ ] `TA`
   - [ ] `TC`
+- [ ] Confirm vCita Matter-name field UID is stored on the active vCita account for payment-dependent pending holds.
 - [ ] Confirm neutral external booking staff UID is stored on the active vCita account for TA/TC-style services.
 - [ ] Confirm TA/TC `VcitaService` rows have `use_external_booking_staff=True`.
 - [ ] Confirm Artist profiles have correct names, Telegram user IDs, Telegram chat IDs, `can_approve` values, vCita staff IDs where applicable, and Google Calendar mappings.

@@ -1,7 +1,7 @@
 from django.contrib import admin, messages
 
 from .api import VcitaAPIClient, VcitaAPIError
-from .models import VcitaAccount, VcitaService, VcitaWebhookEvent
+from .models import VcitaAccount, VcitaFinancialRecord, VcitaService, VcitaWebhookEvent
 
 
 @admin.register(VcitaAccount)
@@ -12,14 +12,24 @@ class VcitaAccountAdmin(admin.ModelAdmin):
         "business_uid",
         "default_service_uid",
         "external_booking_staff_uid",
+        "vcita_matter_name_field_uid",
         "default_timezone",
         "api_base_url",
         "is_active",
         "updated_at",
     )
     list_filter = ("is_active", "created_at", "updated_at")
-    search_fields = ("name", "business_uid", "business_name", "default_service_uid", "external_booking_staff_uid", "api_base_url", "notes")
-    actions = ("test_api_token", "sync_userinfo", "show_active_staff", "show_services")
+    search_fields = (
+        "name",
+        "business_uid",
+        "business_name",
+        "default_service_uid",
+        "external_booking_staff_uid",
+        "vcita_matter_name_field_uid",
+        "api_base_url",
+        "notes",
+    )
+    actions = ("test_api_token", "sync_userinfo", "show_active_staff", "show_services", "show_fields")
     fieldsets = (
         (
             "Account",
@@ -32,6 +42,7 @@ class VcitaAccountAdmin(admin.ModelAdmin):
                     "business_name",
                     "default_service_uid",
                     "external_booking_staff_uid",
+                    "vcita_matter_name_field_uid",
                     "default_timezone",
                     "webhook_secret",
                 )
@@ -118,6 +129,21 @@ class VcitaAccountAdmin(admin.ModelAdmin):
             preview = self._format_reference_preview(response)
             self.message_user(request, f"{account.name}: service response preview: {preview}", level=messages.INFO)
 
+    @admin.action(description="Show vCita field IDs")
+    def show_fields(self, request, queryset):
+        for account in queryset:
+            try:
+                response = VcitaAPIClient(account).list_fields(account.business_uid)
+            except VcitaAPIError as exc:
+                self.message_user(
+                    request,
+                    f"{account.name}: field lookup failed ({exc.status_code or 'no status'}): {exc}",
+                    level=messages.ERROR,
+                )
+                continue
+            preview = self._format_reference_preview(response)
+            self.message_user(request, f"{account.name}: fields response preview: {preview}", level=messages.INFO)
+
     @staticmethod
     def _format_reference_preview(response):
         text = str(response)
@@ -147,6 +173,60 @@ class VcitaServiceAdmin(admin.ModelAdmin):
         ),
         ("Notes", {"fields": ("notes",)}),
     )
+
+
+@admin.register(VcitaFinancialRecord)
+class VcitaFinancialRecordAdmin(admin.ModelAdmin):
+    list_display = (
+        "id",
+        "record_type",
+        "vcita_uid",
+        "matter_uid",
+        "status",
+        "intake",
+        "lead",
+        "account",
+        "updated_at",
+    )
+    list_filter = ("record_type", "status", "account", "created_at", "updated_at")
+    search_fields = (
+        "vcita_uid",
+        "matter_uid",
+        "intake__id",
+        "lead__name",
+        "lead__email",
+        "lead__phone_number",
+        "raw_payload",
+    )
+    readonly_fields = (
+        "account",
+        "intake",
+        "lead",
+        "last_webhook_event",
+        "record_type",
+        "vcita_uid",
+        "matter_uid",
+        "status",
+        "amount",
+        "currency",
+        "raw_payload",
+        "created_at",
+        "updated_at",
+    )
+    fieldsets = (
+        ("Record", {"fields": ("account", "record_type", "vcita_uid", "matter_uid", "status")}),
+        ("Mapping", {"fields": ("intake", "lead", "last_webhook_event")}),
+        ("Money", {"fields": ("amount", "currency")}),
+        ("Payload", {"fields": ("raw_payload",)}),
+        ("Timestamps", {"fields": ("created_at", "updated_at")}),
+    )
+    ordering = ("-updated_at",)
+    date_hierarchy = "updated_at"
+    list_per_page = 50
+
+    def has_add_permission(self, request):
+        return False
+
 
 @admin.register(VcitaWebhookEvent)
 class VcitaWebhookEventAdmin(admin.ModelAdmin):

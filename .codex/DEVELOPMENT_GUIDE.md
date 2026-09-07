@@ -1,6 +1,6 @@
 # Development Guide
 
-Last reviewed: 2026-09-06
+Last reviewed: 2026-09-07
 
 ## Local Environment
 
@@ -178,7 +178,7 @@ Models:
 - `AIAnalysis`: raw and normalized AI response snapshots.
 - `OutboundAction`: pending/sent/failed audit records for client reply attempts.
 - `ExternalArtistOffer`: offer state for non-approver artists before final assignment and client contact release.
-- Current intake state stores AI summary, AI suggested price, Hoss-approved price, price note, approver, approval timestamp, AI-proposed appointment date/time, pending hold service/date/time/expiry/review state, chosen vCita service snapshot, schedule state, vCita booking UID, and payment state.
+- Current intake state stores AI summary, AI suggested price, Hoss-approved price, price note, approver, approval timestamp, AI-proposed appointment date/time, pending hold service/date/time/expiry/review state, chosen vCita service snapshot, schedule state, vCita Matter UID, vCita booking UID, and payment state.
 - Admin panel for `IntakeRequest` is organized for local testing: summary, draft reply, AI suggested price, approved price, price note, appointment date, and appointment time can be edited directly before sending a Telegram review card.
 
 Service:
@@ -209,7 +209,8 @@ Admin setup:
 8. Run `Show vCita service IDs`; create `VcitaService` rows for each schedulable option with a short code, display name, and vCita service UID.
 9. For TA/TC or other external artist services, create/select a neutral vCita staff/resource such as `External Artist Bookings`, then store its UID in `VcitaAccount.external_booking_staff_uid`.
 10. Mark TA/TC `VcitaService` rows with `use_external_booking_staff=True`. Leave Lana/Sandra/Sliva `ArtistProfile.vcita_staff_uid` blank unless they become real vCita staff later.
-11. Keep `default_timezone=Europe/Amsterdam` unless the studio changes scheduling timezone.
+11. Run `Show vCita field IDs`, find the field where vCita identifies the Matter name field, and store that ID in `vcita_matter_name_field_uid`. This is required for payment-dependent pending holds.
+12. Keep `default_timezone=Europe/Amsterdam` unless the studio changes scheduling timezone.
 
 Webhook URL:
 
@@ -222,9 +223,11 @@ Current behavior:
 - `GET /api/v1/webhook/vcita/` returns a health response.
 - `POST /api/v1/webhook/vcita/` stores the raw webhook payload in `VcitaWebhookEvent`.
 - If `VcitaAccount.webhook_secret` is set, vCita webhook calls must include the same value as `?secret=...` or `X-Vcita-Webhook-Secret`.
-- Payment/cancel/reschedule webhook events update an `IntakeRequest` when the payload contains a booking/appointment/meeting ID matching `IntakeRequest.vcita_booking_uid`.
-- Paid/recorded payment webhooks can also auto-finalize a pending hold when the payload identifies exactly one active pending request by request ID, payment reference, or vCita client UID. If final vCita booking fails, the pending hold remains active and Telegram is notified.
-- Unknown vCita webhook payloads are stored only so real live shapes can be inspected later.
+- Payment/cancel/reschedule webhook events first match by booking/appointment/meeting ID against `IntakeRequest.vcita_booking_uid`.
+- Financial webhooks can also match by `matter_uid` or by invoice/payment/deposit UID. If vCita sends only a financial UID, the backend fetches the full vCita object and reads its `matter_uid`.
+- `VcitaFinancialRecord` stores invoice, deposit, and payment IDs, status, amount, currency, raw payload, and the matched intake/lead.
+- Paid/recorded payment webhooks auto-finalize a pending hold only when exactly one request is matched. If the request is already scheduled, the backend reports that no duplicate booking was created. If final vCita booking fails, the pending hold remains active and Telegram is notified.
+- Unknown, ambiguous, or unmatched vCita webhook payloads are stored with `unmatched` or `failed` status and Telegram asks Hoss/Nina to review the Admin panel.
 
 Scheduling:
 
@@ -239,7 +242,7 @@ Scheduling:
 - Holding or scheduling requires the intake to be assigned to an artist first.
 - If the Schedule button is pressed, Telegram shows the available service codes and asks Hoss to run the full `/schedule` command. If scheduling is attempted before assignment, Telegram tells Hoss to assign an artist first.
 - Successful hold creation stores pending hold service/date/time/expiry state, creates/updates a Pending Appointments Google Calendar event, marks payment as pending, notifies the group, and notifies the assigned artist privately.
-- Successful scheduling creates or updates the vCita booking using the selected `VcitaService`, stores `vcita_booking_uid` plus service code/name/UID snapshot, notifies the group, sends the client a scheduling message through the original channel, and notifies the assigned artist privately. If active Google Calendar mappings exist, the backend checks conflicts first and syncs confirmed Google events after vCita succeeds.
+- Successful scheduling creates or updates the vCita booking using the selected `VcitaService`, passes `matter_uid` when available, stores `vcita_matter_uid`, `vcita_booking_uid`, and service code/name/UID snapshot, notifies the group, sends the client a scheduling message through the original channel, and notifies the assigned artist privately. If active Google Calendar mappings exist, the backend checks conflicts first and syncs confirmed Google events after vCita succeeds.
 - If a final schedule is created from a pending hold, the pending hold is ignored during conflict checking for that same request. The pending hold is released only after final vCita booking and confirmed Google Calendar sync succeed. If final booking fails, the pending hold remains active and Hoss/Nina are notified.
 - vCita client creation sends a flat payload with explicit `first_name` and `last_name`; do not wrap it in `{"client": ...}` because vCita rejects that shape as a blank first name. When the lead only has email/phone, fallback names are generated as `Tattoo Lead REQUEST_ID`.
 - vCita client lookup uses `/platform/v1/clients` with `search_by=email` or `search_by=phone` before creating a new client.

@@ -64,6 +64,7 @@ class IntakeRequestAdmin(admin.ModelAdmin):
         "latest_summary",
         "approved_price",
         "ai_suggested_price",
+        "vcita_matter_uid",
         "vcita_booking_uid",
         "scheduled_service_code",
         "scheduled_service_name",
@@ -160,7 +161,8 @@ class IntakeRequestAdmin(admin.ModelAdmin):
                     "scheduled_service_uid",
                     "schedule_status",
                     "schedule_error",
-                    "vcita_booking_uid",
+                    "vcita_matter_uid",
+        "vcita_booking_uid",
                     "pending_hold_status",
                     "pending_hold_date",
                     "pending_hold_time",
@@ -173,6 +175,7 @@ class IntakeRequestAdmin(admin.ModelAdmin):
                     "pending_hold_released_at",
                     "pending_hold_finalized_at",
                     "pending_hold_error",
+
                     "payment_status",
                     "payment_reference",
                 )
