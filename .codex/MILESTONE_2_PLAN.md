@@ -310,7 +310,7 @@ Phase 3 implemented initially on 2026-08-27:
 - Schedule from Telegram through Hoss-only `/schedule REQUEST_ID SERVICE_CODE YYYY-MM-DD HH:MM`; the Schedule button guides Hoss to choose a service code.
 - Scheduling requires assigned artist and `ArtistProfile.vcita_staff_uid`.
 - Uses `VcitaAccount.business_uid`, `default_timezone`, and an active `VcitaService` mapping for the selected service code.
-- TA/TC-style external artist services use a neutral/shared vCita booking staff UID from `VcitaAccount.external_booking_staff_uid`; the real assigned artist stays in backend state and Google Calendar, and is written into vCita booking notes.
+- TA/TC-style external artist services use `schedule_provider=Google Calendar only`; the real assigned artist stays in backend state and their mapped Google Calendar, and no vCita booking is created for TA/TC.
 - Live vCita token/payload verification remains before relying on this in production.
 
 Phase 3 extended on 2026-09-05 and 2026-09-06:

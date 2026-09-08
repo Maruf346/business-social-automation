@@ -54,8 +54,9 @@ class GoogleCalendarService:
         start_at: datetime,
         duration_minutes: int = DEFAULT_DURATION_MINUTES,
         ignore_own_pending_hold: bool = True,
+        include_shared_vcita: bool = True,
     ) -> list[str]:
-        calendars = self._calendars_for_confirmed_schedule(intake)
+        calendars = self._calendars_for_confirmed_schedule(intake, include_shared_vcita=include_shared_vcita)
         if not calendars:
             return []
         if not self.is_configured():
@@ -87,8 +88,9 @@ class GoogleCalendarService:
         service_code: str,
         service_name: str,
         duration_minutes: int = DEFAULT_DURATION_MINUTES,
+        include_shared_vcita: bool = True,
     ) -> GoogleCalendarSyncResult:
-        calendars = self._event_calendars_for_confirmed_schedule(intake)
+        calendars = self._event_calendars_for_confirmed_schedule(intake, include_shared_vcita=include_shared_vcita)
         if not calendars:
             return GoogleCalendarSyncResult(checked_calendar_ids=[], synced_event_ids=[], warnings=[])
         if not self.is_configured():
@@ -298,7 +300,11 @@ class GoogleCalendarService:
             warnings=warnings,
         )
 
-    def _calendars_for_confirmed_schedule(self, intake: IntakeRequest) -> list[GoogleCalendarConfig]:
+    def _calendars_for_confirmed_schedule(
+        self,
+        intake: IntakeRequest,
+        include_shared_vcita: bool = True,
+    ) -> list[GoogleCalendarConfig]:
         calendars: list[GoogleCalendarConfig] = []
         if intake.assigned_artist_id:
             calendars.extend(
@@ -314,15 +320,20 @@ class GoogleCalendarService:
                 is_active=True,
             )
         )
-        calendars.extend(
-            GoogleCalendarConfig.objects.filter(
-                calendar_type=GoogleCalendarType.SHARED_VCITA,
-                is_active=True,
+        if include_shared_vcita:
+            calendars.extend(
+                GoogleCalendarConfig.objects.filter(
+                    calendar_type=GoogleCalendarType.SHARED_VCITA,
+                    is_active=True,
+                )
             )
-        )
         return self._unique_calendars(calendars)
 
-    def _event_calendars_for_confirmed_schedule(self, intake: IntakeRequest) -> list[GoogleCalendarConfig]:
+    def _event_calendars_for_confirmed_schedule(
+        self,
+        intake: IntakeRequest,
+        include_shared_vcita: bool = True,
+    ) -> list[GoogleCalendarConfig]:
         calendars: list[GoogleCalendarConfig] = []
         if intake.assigned_artist_id:
             calendars.extend(
@@ -332,12 +343,13 @@ class GoogleCalendarService:
                     is_active=True,
                 )
             )
-        calendars.extend(
-            GoogleCalendarConfig.objects.filter(
-                calendar_type=GoogleCalendarType.SHARED_VCITA,
-                is_active=True,
+        if include_shared_vcita:
+            calendars.extend(
+                GoogleCalendarConfig.objects.filter(
+                    calendar_type=GoogleCalendarType.SHARED_VCITA,
+                    is_active=True,
+                )
             )
-        )
         return self._unique_calendars(calendars)
 
     @staticmethod

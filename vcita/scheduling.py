@@ -12,7 +12,7 @@ from intake.models import IntakeRequest, PaymentStatus, PendingHoldStatus, Sched
 from lead.models import Lead
 
 from .api import VcitaAPIClient, VcitaAPIError
-from .models import VcitaAccount, VcitaService
+from .models import VcitaAccount, VcitaScheduleProvider, VcitaService
 
 
 class VcitaSchedulingError(Exception):
@@ -27,6 +27,7 @@ class VcitaScheduleResult:
     intake: IntakeRequest
     account: VcitaAccount
     service: VcitaService
+    schedule_provider: str
     requested_date: str
     requested_time: str
     booking_uid: str
@@ -35,6 +36,8 @@ class VcitaScheduleResult:
     google_checked_calendar_ids: list[str]
     google_synced_event_ids: list[str]
     google_sync_warnings: list[str]
+
+
 @dataclass(frozen=True)
 class VcitaHoldResult:
     intake: IntakeRequest
@@ -64,17 +67,30 @@ class VcitaSchedulingService:
         service_code: str = "",
     ) -> VcitaScheduleResult:
         account = self._require_account()
-        client = self._require_client()
         appointment_date = (appointment_date or intake.appointment_date).strip()
         appointment_time = (appointment_time or intake.appointment_time).strip()
         start_local = self._parse_local_start(appointment_date, appointment_time, account.default_timezone)
 
         if not intake.assigned_artist_id:
             raise VcitaSchedulingError("Please assign an artist first, then schedule this request.")
+
+        service = self._get_service(account, service_code)
+        self._validate_service_for_artist(intake, account, service)
+
+        if self._is_google_only_service(service):
+            return self._schedule_google_only(
+                intake=intake,
+                account=account,
+                service=service,
+                appointment_date=appointment_date,
+                appointment_time=appointment_time,
+                start_local=start_local,
+            )
+
         if not account.business_uid:
             raise VcitaSchedulingError("vCita business UID is missing. Sync user info or add it in the Admin panel.")
 
-        service = self._get_service(account, service_code)
+        client = self._require_client()
         booking_staff_uid = self._resolve_booking_staff_uid(intake, account, service)
         vcita_client_uid = self._get_or_create_client_uid(
             intake.lead,
@@ -189,6 +205,7 @@ class VcitaSchedulingService:
             intake=intake,
             account=account,
             service=service,
+            schedule_provider=VcitaScheduleProvider.VCITA,
             requested_date=appointment_date,
             requested_time=appointment_time,
             booking_uid=booking_uid,
@@ -199,6 +216,91 @@ class VcitaSchedulingService:
             google_sync_warnings=google_warnings,
         )
 
+    def _schedule_google_only(
+        self,
+        intake: IntakeRequest,
+        account: VcitaAccount,
+        service: VcitaService,
+        appointment_date: str,
+        appointment_time: str,
+        start_local: datetime,
+    ) -> VcitaScheduleResult:
+        if not intake.assigned_artist.google_calendars.filter(calendar_type="artist", is_active=True).exists():
+            raise VcitaSchedulingError(
+                f"{intake.assigned_artist.name} does not have an active Google Calendar mapping. Add it in the Admin panel before scheduling TA/TC."
+            )
+
+        google_calendar = GoogleCalendarService()
+        try:
+            google_checked_calendar_ids = google_calendar.preflight_confirmed_schedule(
+                intake=intake,
+                start_at=start_local,
+                duration_minutes=self.DEFAULT_DURATION_MINUTES,
+                include_shared_vcita=False,
+            )
+        except GoogleCalendarError as exc:
+            self._mark_schedule_failed(intake, str(exc))
+            raise VcitaSchedulingError(str(exc)) from exc
+
+        was_reschedule = bool(
+            intake.schedule_status in {ScheduleStatus.SCHEDULED, ScheduleStatus.RESCHEDULED}
+            and intake.scheduled_date
+            and intake.scheduled_time
+        )
+        with transaction.atomic():
+            intake.scheduled_date = appointment_date
+            intake.scheduled_time = appointment_time
+            intake.scheduled_service = service
+            intake.scheduled_service_code = service.code
+            intake.scheduled_service_name = service.name
+            intake.scheduled_service_uid = service.vcita_service_uid
+            intake.schedule_status = ScheduleStatus.RESCHEDULED if was_reschedule else ScheduleStatus.SCHEDULED
+            intake.schedule_error = ""
+            if intake.payment_status == PaymentStatus.UNKNOWN:
+                intake.payment_status = PaymentStatus.UNPAID
+            intake.save(
+                update_fields=[
+                    "scheduled_date",
+                    "scheduled_time",
+                    "scheduled_service",
+                    "scheduled_service_code",
+                    "scheduled_service_name",
+                    "scheduled_service_uid",
+                    "schedule_status",
+                    "schedule_error",
+                    "payment_status",
+                    "updated_at",
+                ]
+            )
+
+        google_sync = google_calendar.sync_confirmed_schedule(
+            intake=intake,
+            start_at=start_local,
+            service_code=service.code,
+            service_name=service.name,
+            duration_minutes=self.DEFAULT_DURATION_MINUTES,
+            include_shared_vcita=False,
+        )
+        if google_sync.warnings:
+            release_warnings = self._keep_pending_hold_after_google_warning(intake, google_sync.warnings)
+        else:
+            release_warnings = self._release_pending_hold_after_final_booking(intake, google_calendar)
+        google_warnings = [*google_sync.warnings, *release_warnings]
+
+        return VcitaScheduleResult(
+            intake=intake,
+            account=account,
+            service=service,
+            schedule_provider=VcitaScheduleProvider.GOOGLE_ONLY,
+            requested_date=appointment_date,
+            requested_time=appointment_time,
+            booking_uid="",
+            raw_response={"provider": "google_calendar", "event_ids": google_sync.synced_event_ids},
+            was_reschedule=was_reschedule,
+            google_checked_calendar_ids=google_checked_calendar_ids,
+            google_synced_event_ids=google_sync.synced_event_ids,
+            google_sync_warnings=google_warnings,
+        )
 
     def hold_intake(
         self,
@@ -219,6 +321,15 @@ class VcitaSchedulingService:
             raise VcitaSchedulingError("vCita business UID is missing. Sync user info or add it in the Admin panel.")
 
         service = self._get_service(account, service_code)
+        if self._is_external_artist(intake):
+            raise VcitaSchedulingError(
+                "Pending holds are only for Hoss/Nina vCita bookings. For external artists, use /schedule with TA or TC."
+            )
+        if self._is_google_only_service(service):
+            raise VcitaSchedulingError(
+                f"Service {service.code} is Google Calendar only and cannot be held for vCita payment. Use /schedule for this service."
+            )
+        self._validate_service_for_artist(intake, account, service)
         vcita_client_uid = self._get_or_create_client_uid(
             intake.lead,
             account,
@@ -330,6 +441,53 @@ class VcitaSchedulingService:
             ]
         )
         return release_result.synced_event_ids
+
+    @staticmethod
+    def _is_external_artist(intake: IntakeRequest) -> bool:
+        return bool(intake.assigned_artist_id and intake.assigned_artist and not intake.assigned_artist.can_approve)
+
+    @staticmethod
+    def _is_google_only_service(service: VcitaService) -> bool:
+        return service.schedule_provider == VcitaScheduleProvider.GOOGLE_ONLY or service.code.upper() in {"TA", "TC"}
+
+    def _validate_service_for_artist(
+        self,
+        intake: IntakeRequest,
+        account: VcitaAccount,
+        service: VcitaService,
+    ) -> None:
+        is_external_artist = self._is_external_artist(intake)
+        is_google_only_service = self._is_google_only_service(service)
+        service_codes = self._google_only_service_codes(account)
+        service_list = ", ".join(service_codes) if service_codes else "TA or TC"
+
+        if is_external_artist and not is_google_only_service:
+            raise VcitaSchedulingError(
+                f"Request #{intake.pk} is assigned to {intake.assigned_artist.name}. External artist bookings must use {service_list}."
+            )
+        if is_google_only_service and not is_external_artist:
+            raise VcitaSchedulingError(
+                f"Service {service.code} is for external artist bookings only. Assign Lana, Sandra, or Sliva first, then schedule again."
+            )
+
+    @staticmethod
+    def _google_only_service_codes(account: VcitaAccount) -> list[str]:
+        codes = set(
+            VcitaService.objects.filter(
+                account=account,
+                is_active=True,
+                schedule_provider=VcitaScheduleProvider.GOOGLE_ONLY,
+            ).values_list("code", flat=True)
+        )
+        codes.update(
+            VcitaService.objects.filter(
+                account=account,
+                is_active=True,
+                code__in=["TA", "TC"],
+            ).values_list("code", flat=True)
+        )
+        return sorted(code for code in codes if code)
+
     def _get_service(self, account: VcitaAccount, service_code: str) -> VcitaService:
         normalized_code = (service_code or "").strip().upper()
         if not normalized_code:
@@ -358,28 +516,23 @@ class VcitaSchedulingService:
 
         lines = ["Please select a service code to schedule this request:"]
         for service in services:
-            lines.append(f"- {service.code}: {service.name}")
+            label = f"- {service.code}: {service.name}"
+            if service.schedule_provider == VcitaScheduleProvider.GOOGLE_ONLY or service.code.upper() in {"TA", "TC"}:
+                label += " (Google Calendar only)"
+            lines.append(label)
         lines.append("Use /schedule REQUEST_ID SERVICE_CODE YYYY-MM-DD HH:MM")
         lines.append("Example: /schedule 12 OCH 2026-09-04 14:30")
         return "\n".join(lines)
 
-
     @staticmethod
     def _resolve_booking_staff_uid(intake: IntakeRequest, account: VcitaAccount, service: VcitaService) -> str:
-        if service.use_external_booking_staff:
-            staff_uid = (account.external_booking_staff_uid or "").strip()
-            if not staff_uid:
-                raise VcitaSchedulingError(
-                    f"Service {service.code} uses external artist scheduling, but the neutral vCita booking staff UID is missing. Add it in the Admin panel first."
-                )
-            return staff_uid
-
         staff_uid = (intake.assigned_artist.vcita_staff_uid or "").strip()
         if not staff_uid:
             raise VcitaSchedulingError(
-                f"{intake.assigned_artist.name} is missing a vCita staff ID. Add it in the Admin panel first, or mark service {service.code} to use the external booking staff UID."
+                f"{intake.assigned_artist.name} is missing a vCita staff ID. Add it in the Admin panel before scheduling a vCita-backed service."
             )
         return staff_uid
+
     def _get_or_create_client_uid(
         self,
         lead: Lead,
@@ -541,7 +694,6 @@ class VcitaSchedulingService:
             f"Request #{intake.pk}",
             f"Service: {service.code} - {service.name}",
             f"Assigned artist: {intake.assigned_artist.name if intake.assigned_artist else 'Unassigned'}",
-            f"vCita booking staff mode: {'external/shared' if service.use_external_booking_staff else 'assigned artist'}",
             f"Idea: {intake.tattoo_idea or 'Unclear'}",
         ]
         price = intake.approved_price or intake.ai_suggested_price

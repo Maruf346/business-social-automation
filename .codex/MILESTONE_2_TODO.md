@@ -1,12 +1,12 @@
 # Milestone 2 TODO
 
-Last updated: 2026-09-07
+Last updated: 2026-09-08
 
 This checklist tracks what is left after the current vCita, Telegram, Outlook, WhatsApp, AI, and Google Calendar work. Use this file as the working TODO list; update checkboxes as each item is completed and verified.
 ## Next Recommended Order
 
 1. Deploy the latest backend image and run migrations, including `intake.0010` for external artist offers.
-2. Verify Admin panel setup: active vCita account, vCita Matter-name field UID, neutral external booking staff UID, mapped vCita services, artist Telegram IDs/chat IDs, vCita staff IDs where needed, and Google Calendar mappings.
+2. Verify Admin panel setup: active vCita account, vCita Matter-name field UID, mapped vCita services with correct schedule provider, artist Telegram IDs/chat IDs, vCita staff IDs for Hoss/Nina where needed, and Google Calendar mappings for external artists.
 3. Test Telegram external artist offer flow end to end with one non-approver artist.
 4. Test current scheduling flow with `/schedule REQUEST_ID SERVICE_CODE YYYY-MM-DD HH:MM` and Google Calendar conflict checks.
 5. Test pending hold to payment webhook to final scheduling, after vCita webhook subscriptions are active.
@@ -27,7 +27,7 @@ This checklist tracks what is left after the current vCita, Telegram, Outlook, W
   - [ ] Sliva calendar.
   - [ ] Shared vCita/Hoss/Nina calendar, if needed.
 - [ ] Use the Admin panel action to test Google Calendar access for every configured calendar.
-- [ ] Confirm all vCita services are mapped in the Admin panel with code, name, service UID, and external booking staff mode where needed:
+- [ ] Confirm all vCita services are mapped in the Admin panel with code, name, service UID, and the correct schedule provider:
   - [ ] `CH`
   - [ ] `CN`
   - [ ] `OCH`
@@ -41,8 +41,8 @@ This checklist tracks what is left after the current vCita, Telegram, Outlook, W
   - [ ] `TA`
   - [ ] `TC`
 - [ ] Confirm vCita Matter-name field UID is stored on the active vCita account for payment-dependent pending holds.
-- [ ] Confirm neutral external booking staff UID is stored on the active vCita account for TA/TC-style services.
-- [ ] Confirm TA/TC `VcitaService` rows have `use_external_booking_staff=True`.
+- [ ] Confirm TA/TC service rows are set to Google Calendar only; no neutral vCita staff UID is needed for TA/TC.
+- [ ] Confirm TA/TC `VcitaService` rows have `schedule_provider=Google Calendar only`.
 - [ ] Confirm Artist profiles have correct names, Telegram user IDs, Telegram chat IDs, `can_approve` values, vCita staff IDs where applicable, and Google Calendar mappings.
 - [ ] Reconfirm whether Nina can approve requests. Current backend supports any active artist with `can_approve=True`; business policy still needs final confirmation.
 - [ ] Test assigning a non-approver artist sends a private offer card with `Accept` and `Decline`.
@@ -55,12 +55,12 @@ This checklist tracks what is left after the current vCita, Telegram, Outlook, W
 - [ ] Verify command without service code returns a clear guidance message and does not silently use a fallback service.
 - [ ] Confirm vCita availability check runs before booking.
 - [ ] Confirm Google Calendar availability check runs before booking.
-- [ ] Confirm vCita booking is created with the correct client, artist/staff, service, date, time, and request notes.
-- [ ] Confirm Google Calendar event is created or updated after successful vCita booking.
-- [ ] Confirm Telegram success message includes date, time, artist, service code/name, and vCita booking ID.
-- [ ] Confirm rescheduling updates the existing vCita booking and existing Google Calendar event.
+- [ ] Confirm Hoss/Nina services create vCita bookings with the correct client, artist/staff, service, date, time, and request notes.
+- [ ] Confirm Hoss/Nina services create/update Google Calendar events after successful vCita booking.
+- [ ] Confirm Telegram success message includes date, time, artist, service code/name, and the correct provider details: vCita booking ID for vCita services, Google event ID for Google-only services.
+- [ ] Confirm rescheduling updates the existing vCita booking for Hoss/Nina services and the existing Google Calendar event for all scheduled services.
 - [ ] Confirm Google conflict blocks booking before vCita is called.
-- [ ] Confirm if vCita succeeds but Google sync fails, the booking remains and Telegram shows a clear warning.
+- [ ] Confirm if vCita succeeds but Google sync fails for Hoss/Nina services, the booking remains and Telegram shows a clear warning.
 
 ## Pending Appointment Flow
 
@@ -109,13 +109,15 @@ This checklist tracks what is left after the current vCita, Telegram, Outlook, W
 
 ## TA/TC External Artist Scheduling
 
-- [x] Confirm how TA/TC services should be represented in vCita for artists who are not vCita staff: use a neutral/shared vCita booking staff UID, while backend/Google Calendar track the real artist.
-- [x] Support scheduling TA/TC appointments for Lana, Sandra, and Sliva without requiring their own vCita staff UID.
-- [x] Create the TA/TC appointment in the shared/neutral vCita agenda through `external_booking_staff_uid`.
-- [x] Copy the confirmed appointment to the assigned external artist Google Calendar through existing confirmed schedule sync.
-- [x] Include correct artist, service, client/contact context where available, and request ID in vCita notes and Google Calendar sync records.
-- [ ] Confirm both vCita and Google Calendar completion in Telegram during final testing.
-- [ ] If vCita succeeds but Google Calendar fails, notify Hoss/Nina clearly during final testing.
+- [x] Final rule confirmed: TA/TC appointments for Lana, Sandra, and Sliva do not create vCita bookings.
+- [x] Support scheduling TA/TC appointments for external artists without requiring their own vCita staff UID.
+- [x] Route TA/TC/external artist schedules to the assigned artist Google Calendar only.
+- [x] Prevent external artists from being scheduled with non-external service codes and show a clear Telegram error.
+- [x] Prevent Hoss/Nina/internal artists from being scheduled with Google-only TA/TC service codes and show a clear Telegram error.
+- [x] Prevent `/hold` for external artists or Google-only services because holds are only for Hoss/Nina vCita/payment-backed bookings.
+- [x] Include correct artist, service, client/contact context where available, and request ID in Google Calendar sync records.
+- [ ] Confirm Google Calendar-only completion in Telegram during final testing.
+- [ ] Confirm Google Calendar conflicts block TA/TC scheduling before any schedule state is saved.
 
 ## WhatsApp
 
@@ -165,7 +167,7 @@ This checklist tracks what is left after the current vCita, Telegram, Outlook, W
 - [ ] WhatsApp request to AI to Telegram review to approved client reply.
 - [ ] Outlook request to AI to Telegram review to approved client reply.
 - [ ] Hoss/Nina service booking through vCita.
-- [ ] TA/TC booking for Lana/Sandra/Sliva with vCita plus Google Calendar copy.
+- [ ] TA/TC booking for Lana/Sandra/Sliva with Google Calendar only.
 - [ ] Pending hold to payment to final appointment to pending hold release.
 - [ ] Payment paid webhook.
 - [ ] Payment cancelled/refunded webhook.

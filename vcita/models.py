@@ -26,6 +26,11 @@ class VcitaFinancialRecordStatus(models.TextChoices):
     REFUNDED = "refunded", "Refunded"
 
 
+class VcitaScheduleProvider(models.TextChoices):
+    VCITA = "vcita", "vCita"
+    GOOGLE_ONLY = "google_only", "Google Calendar only"
+
+
 class VcitaAccount(models.Model):
     name = models.CharField(max_length=150, default="Default vCita")
     api_token = models.TextField()
@@ -61,6 +66,12 @@ class VcitaService(models.Model):
     code = models.CharField(max_length=30)
     name = models.CharField(max_length=255)
     vcita_service_uid = models.CharField(max_length=255)
+    schedule_provider = models.CharField(
+        max_length=30,
+        choices=VcitaScheduleProvider.choices,
+        default=VcitaScheduleProvider.VCITA,
+        db_index=True,
+    )
     use_external_booking_staff = models.BooleanField(default=False, db_index=True)
     is_active = models.BooleanField(default=True, db_index=True)
     notes = models.TextField(blank=True, default="")

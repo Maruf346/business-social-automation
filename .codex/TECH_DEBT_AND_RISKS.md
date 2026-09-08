@@ -270,7 +270,7 @@ Recommendation:
 
 - Add the client's vCita token in the Admin panel as `VcitaAccount`.
 - Run `Sync vCita business info from token`, `Show active vCita staff IDs`, and `Show vCita service IDs`.
-- Save vCita staff UID where applicable, neutral external booking staff UID for TA/TC services, service mappings, and vCita Matter-name field UID in the Admin panel.
+- Save vCita staff UID where applicable for Hoss/Nina services, service mappings with correct schedule provider, Google Calendar mappings for external artists, and vCita Matter-name field UID in the Admin panel.
 - Test `vcita_smoke_test` and one controlled `/schedule REQUEST_ID YYYY-MM-DD HH:MM` against the live token.
 - Configure vCita webhook to `/api/v1/webhook/vcita/`, preferably with the shared secret query parameter.
 - Inspect real webhook payloads in `VcitaWebhookEvent` and `VcitaFinancialRecord` after live subscription; add a reconciliation command if payment webhooks are missed or delayed.

@@ -147,15 +147,15 @@ vCita integration foundation.
 
 Key models:
 
-- `VcitaAccount`: admin-managed API token, API base URL, business UID/name, legacy default service UID, neutral external booking staff UID, vCita Matter-name field UID, default timezone, and optional webhook secret.
-- `VcitaService`: admin-managed service-code mapping from short Telegram code, such as `OCH`, to vCita service UID/display name, with an optional external-booking-staff mode for TA/TC-style services.
+- `VcitaAccount`: admin-managed API token, API base URL, business UID/name, legacy default service UID, vCita Matter-name field UID, default timezone, and optional webhook secret. The legacy `external_booking_staff_uid` database field remains for production compatibility but is hidden from the Admin panel and no longer used by scheduling.
+- `VcitaService`: admin-managed service-code mapping from short Telegram code, such as `OCH`, to service UID/display name plus a schedule provider. Hoss/Nina services use vCita; TA/TC external artist services use Google Calendar only. The legacy `use_external_booking_staff` database field remains for compatibility but is hidden from the Admin panel and no longer drives scheduling.
 - `VcitaWebhookEvent`: raw webhook event storage, including headers, payload, body, event/entity hints, external id, status, unmatched/failed/processed state, and processing error.
 - `VcitaFinancialRecord`: stores invoice, deposit, and payment UIDs from vCita, links them to `IntakeRequest` through `vcita_matter_uid`, and keeps amount/currency/status plus raw payload for review.
 
 Key code:
 
 - `VcitaAPIClient`: Bearer-token client for vCita userinfo, field/staff/services discovery, webhook subscription/listing, client lookup/creation, Matter creation, financial object lookup, availability checks, and booking create/update calls.
-- `VcitaSchedulingService`: creates pending Google Calendar holds, creates or updates vCita bookings for assigned intakes, creates/stores vCita Matter UIDs when configured, passes `matter_uid` to booking creation when available, resolves assigned-vs-neutral vCita staff ownership per service, releases pending holds only after final booking and confirmed-calendar sync succeed, and stores vCita booking IDs back on `IntakeRequest`.
+- `VcitaSchedulingService`: creates pending Google Calendar holds for Hoss/Nina payment-backed bookings, creates or updates vCita bookings for vCita services, creates/stores vCita Matter UIDs when configured, passes `matter_uid` to booking creation when available, routes TA/TC external artist services to Google Calendar only, releases pending holds only after final booking/calendar sync succeed, and stores schedule state back on `IntakeRequest`.
 - `VcitaWebhook`: unauthenticated webhook receiver at `/api/v1/webhook/vcita/`.
 - `vcita_smoke_test`: management command that calls a simple vCita endpoint using the active account token.
 
@@ -166,7 +166,7 @@ Current behavior:
 - If a webhook payload contains a booking/appointment/meeting ID matching an intake, payment and booking status hints update `IntakeRequest` and notify Telegram.
 - Unknown vCita webhook payloads are stored only; live payload shapes still need verification.
 - The API token is stored in the Admin panel, not environment variables.
-- TA/TC external artist services should be marked to use the neutral external booking staff UID. Lana/Sandra/Sliva do not need vCita staff UIDs; their real assignment is tracked in the backend and synced to their Google Calendar. vCita notes include the actual assigned artist name to avoid confusion.
+- TA/TC external artist services should be marked as `Google Calendar only`. Lana/Sandra/Sliva do not need vCita staff UIDs, and TA/TC does not create a vCita booking; their real assignment is tracked in the backend and synced to their Google Calendar.
 
 ## Current Routes
 
@@ -259,7 +259,7 @@ Artist assignment rules:
 - When a pending hold reaches review time, the Celery Beat scheduled task sends a Telegram card with Keep Hold and Release Hold buttons. After one valid click, the original card is edited with a status line, the buttons disappear, and the bot sends a short confirmation message. `/keephold REQUEST_ID` and `/releasehold REQUEST_ID` remain command fallbacks.
 - The Schedule button appears when AI provided date/time, but it now shows service-code guidance instead of silently using a default service.
 - Hoss can view human decision history with `/logs`, `/logs REQUEST_ID`, `/logs --20`, or `/logs REQUEST_ID --20`; default limit is 10 and max is 30.
-- Hold and schedule commands resolve `SERVICE_CODE` through active `VcitaService` rows, use the vCita account timezone, defaulting to `Europe/Amsterdam`, and store date/time plus service snapshot on the intake.
+- Hold and schedule commands resolve `SERVICE_CODE` through active `VcitaService` rows, use the vCita account timezone, defaulting to `Europe/Amsterdam`, and store date/time plus service snapshot on the intake. `/schedule` sends Hoss/Nina/vCita services through vCita + Google sync, while TA/TC external artist services go to the assigned artist Google Calendar only.
 - If Hoss tries to schedule before assigning an artist, the bot replies: `Please assign an artist first, then schedule this request.`
 - Price updates are internal only and do not send anything to the client.
 - Older Telegram cards using the previous `manual` callback action are still routed into the Edit Reply flow.
@@ -271,7 +271,7 @@ Artist assignment rules:
 - Assignment applies to the active `IntakeRequest`, not permanently to the whole lead.
 - After assignment, future client messages for that intake route to the assigned artist's private Telegram chat.
 - Assigned artist replies are sent automatically to the client through the original channel.
-- Successful pending hold creation notifies the shared Telegram group and assigned artist privately. Successful vCita scheduling notifies the shared Telegram group, the assigned artist privately, and the client through the original channel. If Google Calendar mappings are active, scheduling also checks mapped calendars before vCita and syncs confirmed events after vCita.
+- Successful pending hold creation notifies the shared Telegram group and assigned artist privately. Successful scheduling notifies the shared Telegram group, the assigned artist privately, and the client through the original channel. Hoss/Nina services check Google Calendar, create/update vCita, then sync confirmed calendar events; TA/TC external artist services check and sync only the assigned artist Google Calendar.
 - Artist private replies should support text and media/files.
 - Current implementation supports Telegram text/photo/document private replies. WhatsApp receives media through Meta link sends; Outlook receives media as links in the email reply.
 

@@ -207,8 +207,8 @@ Admin setup:
 6. Run the Admin panel action `Sync vCita business info from token`; this fills `business_uid` and `business_name` from `/oauth/userinfo`.
 7. Run `Show active vCita staff IDs`; copy each artist's vCita staff UID into their `ArtistProfile.vcita_staff_uid`.
 8. Run `Show vCita service IDs`; create `VcitaService` rows for each schedulable option with a short code, display name, and vCita service UID.
-9. For TA/TC or other external artist services, create/select a neutral vCita staff/resource such as `External Artist Bookings`, then store its UID in `VcitaAccount.external_booking_staff_uid`.
-10. Mark TA/TC `VcitaService` rows with `use_external_booking_staff=True`. Leave Lana/Sandra/Sliva `ArtistProfile.vcita_staff_uid` blank unless they become real vCita staff later.
+9. For TA/TC or other external artist services, set the `VcitaService.schedule_provider` to `Google Calendar only`; these services do not create vCita bookings.
+10. Leave Lana/Sandra/Sliva `ArtistProfile.vcita_staff_uid` blank unless they become real vCita staff later; their TA/TC schedules use their mapped Google Calendar.
 11. Run `Show vCita field IDs`, find the field where vCita identifies the Matter name field, and store that ID in `vcita_matter_name_field_uid`. This is required for payment-dependent pending holds.
 12. Keep `default_timezone=Europe/Amsterdam` unless the studio changes scheduling timezone.
 
@@ -242,7 +242,7 @@ Scheduling:
 - Holding or scheduling requires the intake to be assigned to an artist first.
 - If the Schedule button is pressed, Telegram shows the available service codes and asks Hoss to run the full `/schedule` command. If scheduling is attempted before assignment, Telegram tells Hoss to assign an artist first.
 - Successful hold creation stores pending hold service/date/time/expiry state, creates/updates a Pending Appointments Google Calendar event, marks payment as pending, notifies the group, and notifies the assigned artist privately.
-- Successful scheduling creates or updates the vCita booking using the selected `VcitaService`, passes `matter_uid` when available, stores `vcita_matter_uid`, `vcita_booking_uid`, and service code/name/UID snapshot, notifies the group, sends the client a scheduling message through the original channel, and notifies the assigned artist privately. If active Google Calendar mappings exist, the backend checks conflicts first and syncs confirmed Google events after vCita succeeds.
+- Successful scheduling uses the selected `VcitaService` schedule provider. Hoss/Nina services create/update vCita bookings, pass `matter_uid` when available, store `vcita_matter_uid`/`vcita_booking_uid`, and sync Google Calendar after vCita succeeds. TA/TC external artist services skip vCita and sync only the assigned artist Google Calendar. Both paths notify the group, client, and assigned artist.
 - If a final schedule is created from a pending hold, the pending hold is ignored during conflict checking for that same request. The pending hold is released only after final vCita booking and confirmed Google Calendar sync succeed. If final booking fails, the pending hold remains active and Hoss/Nina are notified.
 - vCita client creation sends a flat payload with explicit `first_name` and `last_name`; do not wrap it in `{"client": ...}` because vCita rejects that shape as a blank first name. When the lead only has email/phone, fallback names are generated as `Tattoo Lead REQUEST_ID`.
 - vCita client lookup uses `/platform/v1/clients` with `search_by=email` or `search_by=phone` before creating a new client.

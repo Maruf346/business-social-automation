@@ -24,6 +24,7 @@ from intake.models import (
 )
 from lead.choices import SEND_BY
 from intake.outbound import ClientOutboundService
+from vcita.models import VcitaScheduleProvider
 from vcita.scheduling import VcitaHoldResult, VcitaScheduleResult, VcitaSchedulingError, VcitaSchedulingService
 
 logger = logging.getLogger(__name__)
@@ -1004,24 +1005,27 @@ class TelegramWorkflowService:
                 self.telegram.answer_callback_query(callback_id, str(exc)[:200], show_alert=True)
             self.telegram.send_message(
                 chat_id=chat_id,
-                text=f"Request #{intake.pk}: could not schedule in vCita.\nReason: {escape(str(exc))}",
+                text=f"Request #{intake.pk}: could not schedule.\nReason: {escape(str(exc))}",
             )
             return {"ok": False, "reason": "schedule_failed", "intake_id": intake.pk}
+
+        schedule_note = f"Scheduled {result.service.code} for {result.requested_date} {result.requested_time}. "
+        if result.booking_uid:
+            schedule_note += f"vCita booking: {result.booking_uid}"
+        else:
+            schedule_note += "Google Calendar only"
+        schedule_note += self._format_google_warning_note(result.google_sync_warnings)
 
         HumanDecision.objects.create(
             intake=intake,
             actor=actor,
             action=HumanDecisionAction.SCHEDULE,
-            note=(
-                f"Scheduled {result.service.code} for {result.requested_date} {result.requested_time}. "
-                f"vCita booking: {result.booking_uid}" + self._format_google_warning_note(result.google_sync_warnings)
-            ),
+            note=schedule_note,
             telegram_chat_id=chat_id,
             telegram_message_id=message_id,
             telegram_callback_id=callback_id or "",
             raw_update=raw_update,
         )
-
         if callback_id:
             self.telegram.answer_callback_query(callback_id, "Request scheduled.")
         self.telegram.send_message(chat_id=chat_id, text=self._format_schedule_group_confirmation(result))
@@ -1629,13 +1633,19 @@ class TelegramWorkflowService:
     @staticmethod
     def _format_schedule_group_confirmation(result: VcitaScheduleResult) -> str:
         action = "rescheduled" if result.was_reschedule else "scheduled"
-        return (
-            f"Request #{result.intake.pk} {action} in vCita.\n"
-            f"When: {escape(result.requested_date)} at {escape(result.requested_time)}\n"
-            f"Service: {escape(result.service.code)} - {escape(result.service.name)}\n"
-            f"Artist: {escape(result.intake.assigned_artist.name if result.intake.assigned_artist else 'Unassigned')}\n"
-            f"vCita booking ID: <code>{escape(result.booking_uid)}</code>" + TelegramWorkflowService._format_google_warning_text(result.google_sync_warnings)
-        )
+        lines = [
+            f"Request #{result.intake.pk} {action}.",
+            f"When: {escape(result.requested_date)} at {escape(result.requested_time)}",
+            f"Service: {escape(result.service.code)} - {escape(result.service.name)}",
+            f"Artist: {escape(result.intake.assigned_artist.name if result.intake.assigned_artist else 'Unassigned')}",
+        ]
+        if result.schedule_provider == VcitaScheduleProvider.GOOGLE_ONLY:
+            lines.append("Provider: Google Calendar only")
+            if result.google_synced_event_ids:
+                lines.append("Google event ID: <code>" + escape(result.google_synced_event_ids[0]) + "</code>")
+        else:
+            lines.append(f"vCita booking ID: <code>{escape(result.booking_uid)}</code>")
+        return "\n".join(lines) + TelegramWorkflowService._format_google_warning_text(result.google_sync_warnings)
 
     @staticmethod
     def _format_client_schedule_notice(result: VcitaScheduleResult) -> str:
