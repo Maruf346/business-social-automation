@@ -169,6 +169,19 @@ class TelegramWorkflowService:
         if action == "assign":
             artist = ArtistProfile.objects.get(pk=parsed["artist_id"], is_active=True)
             return self._assign_artist(intake, actor, artist, callback_id, chat_id, message_id, raw_update)
+        if action == "reassign":
+            artist = ArtistProfile.objects.get(pk=parsed["artist_id"], is_active=True)
+            return self._assign_artist(
+                intake,
+                actor,
+                artist,
+                callback_id,
+                chat_id,
+                message_id,
+                raw_update,
+                refresh_review_card=False,
+                reassign_card=True,
+            )
 
         self.telegram.answer_callback_query(callback_id, "Unsupported action.")
         return {"ok": False, "reason": "unsupported_action"}
@@ -195,6 +208,9 @@ class TelegramWorkflowService:
 
         if command == "/schedule":
             return self._handle_schedule_command(message, artist, raw_update)
+
+        if command == "/reassign":
+            return self._handle_reassign_command(message, artist, raw_update)
 
         if command == "/hold":
             return self._handle_hold_command(message, artist, raw_update)
@@ -361,6 +377,41 @@ class TelegramWorkflowService:
             appointment_time=parts[4],
         )
 
+
+    def _handle_reassign_command(
+        self,
+        message: dict[str, Any],
+        artist: ArtistProfile,
+        raw_update: dict[str, Any],
+    ) -> dict[str, Any]:
+        chat_id = message.get("chat", {}).get("id")
+        if not artist.can_approve:
+            self.telegram.send_message(chat_id=chat_id, text="Only Hoss/Nina can reassign requests.")
+            return {"ok": False, "reason": "unauthorized"}
+
+        text = (message.get("text") or "").strip()
+        parts = text.split()
+        if len(parts) != 2 or not parts[1].isdigit():
+            self.telegram.send_message(
+                chat_id=chat_id,
+                text="Use /reassign REQUEST_ID.\nExample: /reassign 12",
+            )
+            return {"ok": False, "reason": "invalid_reassign_command"}
+
+        intake = IntakeRequest.objects.select_related("lead", "assigned_artist").filter(
+            pk=int(parts[1]),
+            is_active=True,
+        ).first()
+        if not intake:
+            self.telegram.send_message(chat_id=chat_id, text="I could not find an active request with that ID.")
+            return {"ok": False, "reason": "unknown_intake"}
+
+        self.telegram.send_message(
+            chat_id=chat_id,
+            text=f"Select the new artist for Request #{intake.pk}.",
+            reply_markup=self._build_artist_selection_keyboard(intake, action="reassign"),
+        )
+        return {"ok": True, "action": "reassign_options", "intake_id": intake.pk}
 
     def _handle_hold_command(
         self,
@@ -590,6 +641,7 @@ class TelegramWorkflowService:
             telegram_callback_id=callback_id,
             raw_update=raw_update,
         )
+        self._refresh_review_card(intake, chat_id, message_id, f"Status: AI reply approved by {actor.name}.")
         self.telegram.answer_callback_query(callback_id, "AI reply sent to client.")
         self.telegram.send_message(chat_id=chat_id, text=f"Request #{intake.pk}: AI reply approved and sent.")
         return {"ok": True, "action": "approve", "intake_id": intake.pk}
@@ -604,10 +656,23 @@ class TelegramWorkflowService:
         chat_id: int | None,
         message_id: int | None,
         raw_update: dict[str, Any],
+        refresh_review_card: bool = True,
+        reassign_card: bool = False,
     ) -> dict[str, Any]:
         if not artist.can_approve:
-            return self._offer_external_artist(intake, actor, artist, callback_id, chat_id, message_id, raw_update)
+            return self._offer_external_artist(
+                intake,
+                actor,
+                artist,
+                callback_id,
+                chat_id,
+                message_id,
+                raw_update,
+                refresh_review_card=refresh_review_card,
+                reassign_card=reassign_card,
+            )
 
+        previous_artist = intake.assigned_artist
         intake.assigned_artist = artist
         intake.status = IntakeStatus.ASSIGNED
         intake.save(update_fields=["assigned_artist", "status", "updated_at"])
@@ -621,15 +686,28 @@ class TelegramWorkflowService:
             telegram_callback_id=callback_id,
             raw_update=raw_update,
         )
+        if previous_artist and previous_artist.pk != artist.pk and previous_artist.telegram_chat_id:
+            self.telegram.send_message(
+                chat_id=previous_artist.telegram_chat_id,
+                text=f"Request #{intake.pk} has been reassigned to {artist.name}.",
+            )
         if artist.telegram_chat_id:
             self.send_artist_update(
                 intake=intake,
                 text="You have been assigned to this request.",
                 purpose=TelegramMessagePurpose.ARTIST_ASSIGNMENT,
             )
+            if refresh_review_card:
+                self._refresh_review_card(intake, chat_id, message_id, f"Status: Assigned to {artist.name} by {actor.name}.")
+            elif reassign_card:
+                self._mark_short_action_card_handled(chat_id, message_id, f"Request #{intake.pk} reassigned to {artist.name}.")
             self.telegram.answer_callback_query(callback_id, f"Assigned to {artist.name}.")
             self.telegram.send_message(chat_id=chat_id, text=f"Request #{intake.pk} assigned to {escape(artist.name)}.")
         else:
+            if refresh_review_card:
+                self._refresh_review_card(intake, chat_id, message_id, f"Status: Assigned to {artist.name}, but /whoami is still needed.")
+            elif reassign_card:
+                self._mark_short_action_card_handled(chat_id, message_id, f"Request #{intake.pk} reassigned to {artist.name}, but /whoami is still needed.")
             self.telegram.answer_callback_query(callback_id, f"{artist.name} has no private chat ID yet.")
             self.telegram.send_message(
                 chat_id=chat_id,
@@ -646,6 +724,8 @@ class TelegramWorkflowService:
         chat_id: int | None,
         message_id: int | None,
         raw_update: dict[str, Any],
+        refresh_review_card: bool = True,
+        reassign_card: bool = False,
     ) -> dict[str, Any]:
         if not artist.telegram_chat_id:
             self.telegram.answer_callback_query(callback_id, f"{artist.name} has no private chat ID yet.")
@@ -664,6 +744,10 @@ class TelegramWorkflowService:
             status=ExternalArtistOfferStatus.OFFERED,
         ).first()
         if existing_offer:
+            if refresh_review_card:
+                self._refresh_review_card(intake, chat_id, message_id, f"Status: Already offered to {artist.name}. Waiting for Accept or Decline.")
+            elif reassign_card:
+                self._mark_short_action_card_handled(chat_id, message_id, f"Request #{intake.pk} is already offered to {artist.name}.")
             self.telegram.answer_callback_query(callback_id, f"{artist.name} already has an active offer.")
             self.telegram.send_message(
                 chat_id=chat_id,
@@ -705,6 +789,10 @@ class TelegramWorkflowService:
             telegram_callback_id=callback_id,
             raw_update=raw_update,
         )
+        if refresh_review_card:
+            self._refresh_review_card(intake, chat_id, message_id, f"Status: Offered to {artist.name}. Waiting for Accept or Decline.")
+        elif reassign_card:
+            self._mark_short_action_card_handled(chat_id, message_id, f"Request #{intake.pk} offered to {artist.name}. Waiting for Accept or Decline.")
         self.telegram.answer_callback_query(callback_id, f"Offer sent to {artist.name}.")
         self.telegram.send_message(
             chat_id=chat_id,
@@ -736,10 +824,6 @@ class TelegramWorkflowService:
         if actor.pk != offer.artist_id:
             self.telegram.answer_callback_query(callback_id, "Only the offered artist can respond to this.", show_alert=True)
             return {"ok": False, "reason": "wrong_artist", "offer_id": offer_id}
-        if offer.intake.assigned_artist_id and offer.intake.assigned_artist_id != actor.pk:
-            self.telegram.answer_callback_query(callback_id, "This request is already assigned to another artist.", show_alert=True)
-            self._mark_external_offer_card_handled(chat_id, message_id, original_text, "Status: This request is already assigned to another artist.")
-            return {"ok": False, "reason": "intake_already_assigned", "offer_id": offer_id}
         if offer.status != ExternalArtistOfferStatus.OFFERED:
             self.telegram.answer_callback_query(callback_id, "This offer has already been handled.", show_alert=True)
             self._mark_external_offer_card_handled(chat_id, message_id, original_text, f"Status: Already {offer.get_status_display()} by {offer.artist.name}.")
@@ -761,6 +845,7 @@ class TelegramWorkflowService:
     ) -> dict[str, Any]:
         now = timezone.now()
         intake = offer.intake
+        previous_artist = intake.assigned_artist
         intake.assigned_artist = actor
         intake.status = IntakeStatus.ASSIGNED
         intake.save(update_fields=["assigned_artist", "status", "updated_at"])
@@ -786,6 +871,11 @@ class TelegramWorkflowService:
         )
         self.telegram.answer_callback_query(callback_id, "Accepted.")
         self._mark_external_offer_card_handled(chat_id, message_id, original_text, f"Status: Accepted by {actor.name}.")
+        if previous_artist and previous_artist.pk != actor.pk and previous_artist.telegram_chat_id:
+            self.telegram.send_message(
+                chat_id=previous_artist.telegram_chat_id,
+                text=f"Request #{intake.pk} has been reassigned to {actor.name}.",
+            )
         self.telegram.send_message(chat_id=chat_id, text=self._format_external_artist_contact_text(intake, actor))
         self.telegram.send_message(
             text=f"Request #{intake.pk}: {escape(actor.name)} accepted. Client name/email released to the artist.",
@@ -838,6 +928,7 @@ class TelegramWorkflowService:
             text=f"Request #{intake.pk}: {escape(actor.name)} declined. Please assign another artist or handle it manually.",
         )
         return {"ok": True, "action": "external_artist_decline", "intake_id": intake.pk, "artist_id": actor.pk}
+
     @transaction.atomic
     def _reject_intake(
         self,
@@ -859,6 +950,7 @@ class TelegramWorkflowService:
             telegram_callback_id=callback_id,
             raw_update=raw_update,
         )
+        self._refresh_review_card(intake, chat_id, message_id, f"Status: AI reply rejected by {actor.name}.")
         self.telegram.answer_callback_query(callback_id, "Marked rejected.")
         self.telegram.send_message(chat_id=chat_id, text=f"Request #{intake.pk} marked rejected.")
         return {"ok": True, "action": "reject", "intake_id": intake.pk}
@@ -883,6 +975,12 @@ class TelegramWorkflowService:
             telegram_message_id=message_id,
             telegram_callback_id=callback_id,
             raw_update=raw_update,
+        )
+        self._refresh_review_card(
+            intake,
+            chat_id,
+            message_id,
+            f"Status: Edit reply selected by {actor.name}. Use /reply {intake.pk} your message.",
         )
         self.telegram.answer_callback_query(callback_id, "Edit mode selected.")
         self.telegram.send_message(
@@ -1351,50 +1449,125 @@ class TelegramWorkflowService:
             self.telegram.edit_message_reply_markup(chat_id=chat_id, message_id=message_id, reply_markup=None)
         except Exception:
             logger.exception("Could not clear pending hold review buttons.")
-    def _build_review_keyboard(self, intake: IntakeRequest) -> dict[str, Any]:
-        keyboard = [
-            [
-                {"text": "Approve AI Reply", "callback_data": f"{self.CALLBACK_PREFIX}:approve:{intake.pk}"},
-                {"text": "Edit Reply", "callback_data": f"{self.CALLBACK_PREFIX}:edit:{intake.pk}"},
-            ],
-            [
-                {"text": "Edit Price", "callback_data": f"{self.CALLBACK_PREFIX}:price:{intake.pk}"},
-            ],
-            [
-                {"text": "Reject", "callback_data": f"{self.CALLBACK_PREFIX}:reject:{intake.pk}"},
-            ],
-        ]
 
+
+    def _mark_short_action_card_handled(
+        self,
+        chat_id: int | None,
+        message_id: int | None,
+        text: str,
+    ) -> None:
+        if not chat_id or not message_id:
+            return
+        try:
+            self.telegram.edit_message_text(chat_id=chat_id, message_id=message_id, text=escape(text), reply_markup=None)
+            self.telegram.edit_message_reply_markup(chat_id=chat_id, message_id=message_id, reply_markup=None)
+        except Exception:
+            logger.exception("Could not mark short Telegram action card handled.")
+
+
+    def _review_keyboard_or_none(self, intake: IntakeRequest) -> dict[str, Any] | None:
+        keyboard = self._build_review_keyboard(intake)["inline_keyboard"]
+        if not keyboard:
+            return None
+        return {"inline_keyboard": keyboard}
+
+    def _refresh_review_card(
+        self,
+        intake: IntakeRequest,
+        chat_id: int | None,
+        message_id: int | None,
+        status_text: str,
+    ) -> None:
+        if not chat_id or not message_id:
+            return
+        text = self._format_review_text(intake, status_text=status_text)
+        reply_markup = self._review_keyboard_or_none(intake)
+        try:
+            self.telegram.edit_message_text(
+                chat_id=chat_id,
+                message_id=message_id,
+                text=text,
+                reply_markup=reply_markup,
+            )
+            if reply_markup is None:
+                self.telegram.edit_message_reply_markup(chat_id=chat_id, message_id=message_id, reply_markup=None)
+        except Exception:
+            logger.exception("Could not refresh Telegram review card after action.")
+            try:
+                self.telegram.edit_message_reply_markup(chat_id=chat_id, message_id=message_id, reply_markup=reply_markup)
+            except Exception:
+                logger.exception("Could not refresh Telegram review card buttons after action.")
+
+    @staticmethod
+    def _ai_reply_decision_handled(intake: IntakeRequest) -> bool:
+        return HumanDecision.objects.filter(
+            intake=intake,
+            action__in=[
+                HumanDecisionAction.APPROVE_AI_REPLY,
+                HumanDecisionAction.EDIT_REPLY,
+                HumanDecisionAction.REJECT,
+            ],
+        ).exists()
+
+    @staticmethod
+    def _assignment_locked(intake: IntakeRequest) -> bool:
+        if intake.assigned_artist_id:
+            return True
+        return ExternalArtistOffer.objects.filter(
+            intake=intake,
+            status=ExternalArtistOfferStatus.OFFERED,
+        ).exists()
+
+    def _build_artist_selection_keyboard(self, intake: IntakeRequest, action: str = "assign") -> dict[str, Any]:
+        keyboard: list[list[dict[str, str]]] = []
         artists = ArtistProfile.objects.filter(is_active=True).order_by("sort_order", "name")
         row = []
         for artist in artists:
             row.append({
-                "text": f"Assign {artist.name}",
-                "callback_data": f"{self.CALLBACK_PREFIX}:assign:{intake.pk}:{artist.pk}",
+                "text": artist.name,
+                "callback_data": f"{self.CALLBACK_PREFIX}:{action}:{intake.pk}:{artist.pk}",
             })
             if len(row) == 2:
                 keyboard.append(row)
                 row = []
         if row:
             keyboard.append(row)
+        return {"inline_keyboard": keyboard}
 
-        if intake.appointment_date and intake.appointment_time:
-            keyboard.append(
+    def _build_review_keyboard(self, intake: IntakeRequest) -> dict[str, Any]:
+        keyboard: list[list[dict[str, str]]] = []
+
+        if not self._ai_reply_decision_handled(intake):
+            keyboard.extend([
                 [
+                    {"text": "Approve AI Reply", "callback_data": f"{self.CALLBACK_PREFIX}:approve:{intake.pk}"},
+                    {"text": "Edit Reply", "callback_data": f"{self.CALLBACK_PREFIX}:edit:{intake.pk}"},
+                ],
+                [
+                    {"text": "Reject", "callback_data": f"{self.CALLBACK_PREFIX}:reject:{intake.pk}"},
+                ],
+            ])
+
+        keyboard.append([
+            {"text": "Edit Price", "callback_data": f"{self.CALLBACK_PREFIX}:price:{intake.pk}"},
+        ])
+
+        if not self._assignment_locked(intake):
+            artists_keyboard = self._build_artist_selection_keyboard(intake, action="assign")["inline_keyboard"]
+            for row in artists_keyboard:
+                keyboard.append([
                     {
-                        "text": "Hold",
-                        "callback_data": f"{self.CALLBACK_PREFIX}:hold:{intake.pk}",
-                    },
-                    {
-                        "text": "Schedule",
-                        "callback_data": f"{self.CALLBACK_PREFIX}:schedule:{intake.pk}",
+                        "text": f"Assign {button['text']}",
+                        "callback_data": button["callback_data"],
                     }
-                ]
-            )
+                    for button in row
+                ])
 
         return {"inline_keyboard": keyboard}
 
-    def _format_review_text(self, intake: IntakeRequest) -> str:
+
+    def _format_review_text(self, intake: IntakeRequest, status_text: str = "") -> str:
         price_lines = [
             f"Price: {escape(intake.approved_price or 'Not approved')}",
         ]
@@ -1426,6 +1599,10 @@ class TelegramWorkflowService:
         if intake.latest_summary:
             summary_section = f"\n<b>Summary</b>\n{escape(intake.latest_summary)}\n"
 
+        status_section = ""
+        if status_text:
+            status_section = f"\n<b>{escape(status_text)}</b>\n"
+
         return (
             f"<b>High-risk request #{intake.pk}</b>\n"
             f"Client: {escape(str(intake.lead))}\n"
@@ -1434,9 +1611,11 @@ class TelegramWorkflowService:
             f"Artist suggestion: {escape(intake.suggested_artist or 'Unclear')}\n"
             f"Missing: {escape(', '.join(intake.missing_information) or 'None')}\n\n"
             f"{chr(10).join(price_lines)}\n"
-            f"{summary_section}\n"
-            f"<b>Draft reply</b>\n{escape(intake.latest_draft_reply or '')}"
+            f"{summary_section}"
+            f"{status_section}\n"
+            f"<b>Draft reply</b>\n<pre>{escape(intake.latest_draft_reply or '')}</pre>"
         )
+
 
     def _format_artist_update_text(
         self,
@@ -1677,7 +1856,7 @@ class TelegramWorkflowService:
             "action": action,
             "intake_id": int(parts[2]),
         }
-        if action == "assign":
+        if action in ("assign", "reassign"):
             if len(parts) != 4 or not parts[3].isdigit():
                 return None
             parsed["artist_id"] = int(parts[3])

@@ -232,7 +232,7 @@ Current behavior:
 Scheduling:
 
 - AI returns `date` as `YYYY-MM-DD` and `time` as `HH:MM`; the backend stores those exact values as `appointment_date` and `appointment_time`.
-- The Telegram Schedule button appears only when both fields are present.
+- New Telegram review cards show the suggested date/time when present, but do not show a Schedule button. Hoss/Nina must use `/hold` or `/schedule` with an explicit service code.
 - Hoss/Nina creates a pending hold with `/hold REQUEST_ID SERVICE_CODE YYYY-MM-DD HH:MM`, for example `/hold 12 OCH 2026-09-04 14:30`. This blocks the Pending Appointments Google Calendar for up to one week while payment/final confirmation is outstanding.
 - After one week, Celery Beat automatically runs `intake.notify_pending_holds` on the configured interval. The task calls `notify_pending_holds`, asks the AI summary endpoint when available, and falls back to the stored intake summary.
 - Manual fallback: run `python manage.py notify_pending_holds` from the server/worker environment to send due review cards.
@@ -240,7 +240,7 @@ Scheduling:
 - Hoss/Nina can also keep a reviewed hold with `/keephold REQUEST_ID` or release it with `/releasehold REQUEST_ID`.
 - Hoss schedules manually with `/schedule REQUEST_ID SERVICE_CODE YYYY-MM-DD HH:MM`, for example `/schedule 12 OCH 2026-09-04 14:30`.
 - Holding or scheduling requires the intake to be assigned to an artist first.
-- If the Schedule button is pressed, Telegram shows the available service codes and asks Hoss to run the full `/schedule` command. If scheduling is attempted before assignment, Telegram tells Hoss to assign an artist first.
+- If an older card still sends a Schedule callback, Telegram shows the available service codes and asks Hoss to run the full `/schedule` command. If scheduling is attempted before assignment, Telegram tells Hoss to assign an artist first.
 - Successful hold creation stores pending hold service/date/time/expiry state, creates/updates a Pending Appointments Google Calendar event, marks payment as pending, notifies the group, and notifies the assigned artist privately.
 - Successful scheduling uses the selected `VcitaService` schedule provider. Hoss/Nina services create/update vCita bookings, pass `matter_uid` when available, store `vcita_matter_uid`/`vcita_booking_uid`, and sync Google Calendar after vCita succeeds. TA/TC external artist services skip vCita and sync only the assigned artist Google Calendar. Both paths notify the group, client, and assigned artist.
 - If a final schedule is created from a pending hold, the pending hold is ignored during conflict checking for that same request. The pending hold is released only after final vCita booking and confirmed Google Calendar sync succeed. If final booking fails, the pending hold remains active and Hoss/Nina are notified.
@@ -347,9 +347,9 @@ Telegram:
 
 - Telegram webhook endpoint now dispatches updates to `TelegramWorkflowService`.
 - `/whoami` returns Telegram user/chat IDs and stores private chat ID for registered artists.
-- Callback query handling supports Hoss/Nina-only approve/reject/Edit Reply/assign actions.
+- Callback query handling supports Hoss/Nina-only approve/reject/Edit Reply/assign actions. Approve/Edit/Reject edit the original review card to remove only the AI-decision buttons; assignment controls remain independent until assignment or an active external offer locks them.
 - Callback query handling supports Hoss/Nina-only Edit Price.
-- Callback query handling supports Hoss-only Hold/Schedule guidance when AI-proposed date/time exists.
+- Callback query handling keeps backward compatibility for older Hold/Schedule buttons, but new review cards avoid those buttons and rely on explicit `/hold` and `/schedule` commands.
 - Shared group actions must be authorized to an active approver artist (`can_approve=True`).
 - Edit Reply tells Hoss to send `/reply REQUEST_ID message text` in the group; only an artist with `can_approve=True` can send that command for an unassigned intake.
 - Edit Price tells Hoss to send `/price REQUEST_ID price | optional note`; this updates internal pricing only.
@@ -362,6 +362,7 @@ Telegram:
 - Older cards with the previous `manual` callback action are treated as Edit Reply for backward compatibility.
 - Artist private replies should be mapped by `reply_to_message.message_id` to a stored `TelegramMessageLink`.
 - Assigned artist fallback reply format should be `/reply REQUEST_ID message text`.
+- Hoss/Nina can use `/reassign REQUEST_ID` to get a short artist-selection card. Selecting an artist edits that short card, removes its buttons, and either assigns an approver artist directly or sends an external artist offer.
 - Assigned artist private cards include request context: idea, approved/AI price, optional price note, placement, size, color, and summary.
 - Assigning a non-approver artist sends a private offer card to that artist instead of assigning immediately. The offer card has `Accept` and `Decline` buttons. Telegram does not support custom button colors.
 - External artist offer cards hide client phone and email until acceptance. After `Accept`, the intake is assigned, competing open offers are cancelled, the buttons disappear, the group is notified, client name/email are released to the artist, and the client is notified through the original channel. After `Decline`, the buttons disappear, the group is notified, and Hoss/Nina can assign another artist later.

@@ -48,6 +48,11 @@ This checklist tracks what is left after the current vCita, Telegram, Outlook, W
 - [ ] Test assigning a non-approver artist sends a private offer card with `Accept` and `Decline`.
 - [ ] Test accepted external artist offer assigns the intake, hides buttons, releases only client name/email, notifies group/client/artist, and cancels competing offers.
 - [ ] Test declined external artist offer hides buttons, notifies group/artist, and leaves the intake available for reassignment.
+- [x] Make review-card draft replies copy-friendly with a preformatted Telegram block.
+- [x] Remove AI-decision buttons from the original review card after Approve/Edit/Reject while keeping assignment controls independent.
+- [x] Hide assignment buttons once an intake is assigned or has an active external artist offer.
+- [x] Hide Schedule buttons from newly generated review cards; scheduling now uses explicit `/hold` or `/schedule` commands.
+- [x] Add `/reassign REQUEST_ID` to send a short artist-selection card and clear that card after selection.
 
 ## Current Scheduling Flow
 

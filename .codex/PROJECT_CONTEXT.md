@@ -90,8 +90,8 @@ Current behavior:
 - Low-risk responses continue client auto-reply.
 - High, medium, or unknown risk values route toward human review instead of auto-send.
 - High-risk review cards now use DB-driven inline buttons.
-- High-risk review cards show price, AI suggested price, optional price note, summary, and draft reply.
-- Review cards show AI-proposed appointment date/time when AI returns both `date` and `time`; this also reveals the Schedule button.
+- High-risk review cards show price, AI suggested price, optional price note, summary, and a copy-friendly preformatted draft reply.
+- Review cards show AI-proposed appointment date/time when AI returns both `date` and `time`, but new review cards no longer expose a Schedule button; Hoss/Nina must use `/hold` or `/schedule` with an explicit service code.
 - Assigned intakes route future client messages to the assigned artist's private Telegram inbox.
 - Assigned artist private cards include intake context such as idea, pricing, placement/size/color, and summary.
 - Assigning a non-approver artist now sends that artist a private safe offer card with `Accept` and `Decline` buttons instead of immediately finalizing assignment.
@@ -252,12 +252,12 @@ Known studio decision makers:
 Artist assignment rules:
 
 - High-risk intakes first go to the shared Telegram group.
-- Hoss can approve an AI draft reply, reject, choose Edit Reply, or assign the active intake to an artist.
+- Hoss can approve an AI draft reply, reject, choose Edit Reply, or assign the active intake to an artist. Approve/Edit/Reject are independent from assignment: after one AI-decision action, only the AI-decision buttons disappear; assignment buttons remain unless the request is already assigned or has an active external artist offer.
 - Edit Reply keeps the intake waiting for human action and tells Hoss to send the final client message with `/reply REQUEST_ID message text` in the shared group.
 - Hoss can choose Edit Price and then update internal approved pricing with `/price REQUEST_ID price | optional note`.
 - Hoss/Nina can create a pending appointment hold with `/hold REQUEST_ID SERVICE_CODE YYYY-MM-DD HH:MM`, for example `/hold 12 OCH 2026-09-04 14:30`. This blocks the Pending Appointments Google Calendar while payment/final confirmation is outstanding.
 - When a pending hold reaches review time, the Celery Beat scheduled task sends a Telegram card with Keep Hold and Release Hold buttons. After one valid click, the original card is edited with a status line, the buttons disappear, and the bot sends a short confirmation message. `/keephold REQUEST_ID` and `/releasehold REQUEST_ID` remain command fallbacks.
-- The Schedule button appears when AI provided date/time, but it now shows service-code guidance instead of silently using a default service.
+- New review cards do not show a Schedule button. Scheduling is handled explicitly with `/schedule REQUEST_ID SERVICE_CODE YYYY-MM-DD HH:MM`; pending payment holds use `/hold REQUEST_ID SERVICE_CODE YYYY-MM-DD HH:MM`.
 - Hoss can view human decision history with `/logs`, `/logs REQUEST_ID`, `/logs --20`, or `/logs REQUEST_ID --20`; default limit is 10 and max is 30.
 - Hold and schedule commands resolve `SERVICE_CODE` through active `VcitaService` rows, use the vCita account timezone, defaulting to `Europe/Amsterdam`, and store date/time plus service snapshot on the intake. `/schedule` sends Hoss/Nina/vCita services through vCita + Google sync, while TA/TC external artist services go to the assigned artist Google Calendar only.
 - If Hoss tries to schedule before assigning an artist, the bot replies: `Please assign an artist first, then schedule this request.`
@@ -267,7 +267,7 @@ Artist assignment rules:
 - Hoss can assign the intake to himself; after assignment, he receives private inbox messages like any other artist.
 - If Hoss/Nina assigns an artist with `can_approve=False`, the backend creates an `ExternalArtistOffer` and sends the artist a private safe brief with `Accept` and `Decline` buttons. The safe brief includes tattoo/request context and reference links when available, but hides client phone and email until acceptance.
 - When the external artist accepts, the intake becomes assigned to that artist, other open offers for the same intake are cancelled, the offer card buttons are removed, the group is notified, client name/email are released to the artist, and the client is notified through the original channel that the artist accepted and will contact by email.
-- When the external artist declines, the offer card buttons are removed, the group is notified, and the intake remains available for reassignment or manual handling.
+- When the external artist declines, the offer card buttons are removed, the group is notified, and the intake remains available for reassignment or manual handling. Hoss/Nina can run `/reassign REQUEST_ID` to receive a short artist-selection card; once a new artist is selected, that short card is edited and its buttons are removed.
 - Assignment applies to the active `IntakeRequest`, not permanently to the whole lead.
 - After assignment, future client messages for that intake route to the assigned artist's private Telegram chat.
 - Assigned artist replies are sent automatically to the client through the original channel.
