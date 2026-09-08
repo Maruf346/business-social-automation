@@ -9,6 +9,7 @@ from django.utils import timezone
 
 from core.exceptions import MetaAPIError, OutlookAPIError
 from core.services.telegram_bot_service import TelegramBotService
+from google_calendar.services import GoogleCalendarError, GoogleCalendarService
 from intake.models import (
     ArtistProfile,
     ExternalArtistOffer,
@@ -19,6 +20,7 @@ from intake.models import (
     IntakeStatus,
     OutboundActionType,
     PendingHoldStatus,
+    ScheduleStatus,
     TelegramMessageLink,
     TelegramMessagePurpose,
 )
@@ -110,7 +112,7 @@ class TelegramWorkflowService:
             return {"ok": False, "reason": "unknown_action"}
 
         action = parsed["action"]
-        intake = IntakeRequest.objects.select_related("lead", "assigned_artist").get(pk=parsed["intake_id"])
+        intake = IntakeRequest.objects.select_related("lead", "assigned_artist", "scheduled_service").get(pk=parsed["intake_id"])
         message = callback.get("message", {})
         chat_id = message.get("chat", {}).get("id")
         message_id = message.get("message_id")
@@ -357,7 +359,7 @@ class TelegramWorkflowService:
             self.telegram.send_message(chat_id=chat_id, text=self._schedule_command_help())
             return {"ok": False, "reason": "invalid_schedule_command"}
 
-        intake = IntakeRequest.objects.select_related("lead", "assigned_artist").filter(
+        intake = IntakeRequest.objects.select_related("lead", "assigned_artist", "scheduled_service").filter(
             pk=int(parts[1]),
             is_active=True,
         ).first()
@@ -398,7 +400,7 @@ class TelegramWorkflowService:
             )
             return {"ok": False, "reason": "invalid_reassign_command"}
 
-        intake = IntakeRequest.objects.select_related("lead", "assigned_artist").filter(
+        intake = IntakeRequest.objects.select_related("lead", "assigned_artist", "scheduled_service").filter(
             pk=int(parts[1]),
             is_active=True,
         ).first()
@@ -430,7 +432,7 @@ class TelegramWorkflowService:
             self.telegram.send_message(chat_id=chat_id, text=self._hold_command_help())
             return {"ok": False, "reason": "invalid_hold_command"}
 
-        intake = IntakeRequest.objects.select_related("lead", "assigned_artist").filter(
+        intake = IntakeRequest.objects.select_related("lead", "assigned_artist", "scheduled_service").filter(
             pk=int(parts[1]),
             is_active=True,
         ).first()
@@ -494,7 +496,7 @@ class TelegramWorkflowService:
             self.telegram.send_message(chat_id=chat_id, text=f"Use {command} REQUEST_ID. Example: {command} 12")
             return {"ok": False, "reason": "invalid_pending_hold_decision"}
 
-        intake = IntakeRequest.objects.select_related("lead", "assigned_artist").filter(
+        intake = IntakeRequest.objects.select_related("lead", "assigned_artist", "scheduled_service").filter(
             pk=int(parts[1]),
             is_active=True,
         ).first()
@@ -659,6 +661,18 @@ class TelegramWorkflowService:
         refresh_review_card: bool = True,
         reassign_card: bool = False,
     ) -> dict[str, Any]:
+        scheduled_reassign = self._prepare_scheduled_reassign(intake, artist)
+        if scheduled_reassign:
+            ok, message = scheduled_reassign
+            if not ok:
+                if reassign_card:
+                    self._mark_short_action_card_handled(chat_id, message_id, message)
+                elif refresh_review_card:
+                    self._refresh_review_card(intake, chat_id, message_id, message)
+                self.telegram.answer_callback_query(callback_id, message[:200], show_alert=True)
+                self.telegram.send_message(chat_id=chat_id, text=message)
+                return {"ok": False, "reason": "scheduled_reassign_blocked", "intake_id": intake.pk, "artist_id": artist.pk}
+
         if not artist.can_approve:
             return self._offer_external_artist(
                 intake,
@@ -691,6 +705,13 @@ class TelegramWorkflowService:
                 chat_id=previous_artist.telegram_chat_id,
                 text=f"Request #{intake.pk} has been reassigned to {artist.name}.",
             )
+        if scheduled_reassign:
+            warning = self._sync_scheduled_reassign(intake, previous_artist, artist)
+            if warning:
+                self.telegram.send_message(
+                    chat_id=chat_id,
+                    text=f"Request #{intake.pk}: reassigned to {artist.name}, but calendar sync needs review. Reason: {warning}",
+                )
         if artist.telegram_chat_id:
             self.send_artist_update(
                 intake=intake,
@@ -800,6 +821,98 @@ class TelegramWorkflowService:
         )
         return {"ok": True, "action": "external_artist_offer", "intake_id": intake.pk, "artist_id": artist.pk}
 
+    def _prepare_scheduled_reassign(self, intake: IntakeRequest, new_artist: ArtistProfile) -> tuple[bool, str] | None:
+        if not self._is_scheduled_intake(intake) or intake.assigned_artist_id == new_artist.pk:
+            return None
+
+        provider = self._scheduled_provider(intake)
+        if provider == VcitaScheduleProvider.VCITA:
+            if new_artist.can_approve:
+                return True, f"Request #{intake.pk} reassigned to {new_artist.name}."
+            return False, (
+                f"Request #{intake.pk} is already scheduled in vCita. "
+                "Please reschedule or cancel it before assigning an external artist."
+            )
+
+        if provider == VcitaScheduleProvider.GOOGLE_ONLY:
+            if new_artist.can_approve:
+                return False, (
+                    f"Request #{intake.pk} is already scheduled for an external artist. "
+                    "Please reschedule it with a Hoss/Nina service before assigning Hoss or Nina."
+                )
+            try:
+                start_local = self._scheduled_start(intake)
+                GoogleCalendarService().preflight_artist_schedule(
+                    intake=intake,
+                    artist=new_artist,
+                    start_at=start_local,
+                    duration_minutes=VcitaSchedulingService.DEFAULT_DURATION_MINUTES,
+                )
+            except (GoogleCalendarError, VcitaSchedulingError) as exc:
+                return False, (
+                    f"Request #{intake.pk} is already scheduled for {intake.scheduled_date} at {intake.scheduled_time}. "
+                    f"{new_artist.name} is not available or cannot be checked. Reason: {exc}"
+                )
+            return True, f"Request #{intake.pk} reassigned to {new_artist.name}."
+
+        return None
+
+    @staticmethod
+    def _is_scheduled_intake(intake: IntakeRequest) -> bool:
+        return bool(
+            intake.scheduled_date
+            and intake.scheduled_time
+            and intake.schedule_status in {ScheduleStatus.SCHEDULED, ScheduleStatus.RESCHEDULED}
+        )
+
+    @staticmethod
+    def _scheduled_provider(intake: IntakeRequest) -> str:
+        if intake.vcita_booking_uid:
+            return VcitaScheduleProvider.VCITA
+        if intake.scheduled_service and (
+            intake.scheduled_service.schedule_provider == VcitaScheduleProvider.GOOGLE_ONLY
+            or intake.scheduled_service.code.upper() in {"TA", "TC"}
+        ):
+            return VcitaScheduleProvider.GOOGLE_ONLY
+        if intake.scheduled_service_code.upper() in {"TA", "TC"}:
+            return VcitaScheduleProvider.GOOGLE_ONLY
+        return VcitaScheduleProvider.VCITA
+
+    @staticmethod
+    def _scheduled_start(intake: IntakeRequest):
+        scheduler = VcitaSchedulingService()
+        account = scheduler.account
+        timezone_name = account.default_timezone if account else "Europe/Amsterdam"
+        return scheduler._parse_local_start(intake.scheduled_date, intake.scheduled_time, timezone_name)
+
+    def _sync_scheduled_reassign(
+        self,
+        intake: IntakeRequest,
+        previous_artist: ArtistProfile | None,
+        new_artist: ArtistProfile,
+    ) -> str:
+        if not self._is_scheduled_intake(intake):
+            return ""
+        if self._scheduled_provider(intake) != VcitaScheduleProvider.GOOGLE_ONLY:
+            return ""
+        if new_artist.can_approve:
+            return ""
+
+        start_local = self._scheduled_start(intake)
+        google_calendar = GoogleCalendarService()
+        sync_result = google_calendar.sync_confirmed_schedule(
+            intake=intake,
+            start_at=start_local,
+            service_code=intake.scheduled_service_code or "TA/TC",
+            service_name=intake.scheduled_service_name or "External artist appointment",
+            duration_minutes=VcitaSchedulingService.DEFAULT_DURATION_MINUTES,
+            include_shared_vcita=False,
+        )
+        release_result = google_calendar.release_confirmed_artist_events_except(intake, keep_artist=new_artist)
+        warnings = [*sync_result.warnings, *release_result.warnings]
+        return " | ".join(warnings)
+
+
     @transaction.atomic
     def _handle_external_artist_offer_callback(
         self,
@@ -845,6 +958,15 @@ class TelegramWorkflowService:
     ) -> dict[str, Any]:
         now = timezone.now()
         intake = offer.intake
+        scheduled_reassign = self._prepare_scheduled_reassign(intake, actor)
+        if scheduled_reassign:
+            ok, message = scheduled_reassign
+            if not ok:
+                self.telegram.answer_callback_query(callback_id, message[:200], show_alert=True)
+                self._mark_external_offer_card_handled(chat_id, message_id, original_text, f"Status: Could not accept. {message}")
+                self.telegram.send_message(chat_id=chat_id, text=f"Request #{intake.pk}: could not accept this request. {message}")
+                self.telegram.send_message(text=message)
+                return {"ok": False, "reason": "scheduled_reassign_blocked", "intake_id": intake.pk, "artist_id": actor.pk}
         previous_artist = intake.assigned_artist
         intake.assigned_artist = actor
         intake.status = IntakeStatus.ASSIGNED
@@ -869,6 +991,11 @@ class TelegramWorkflowService:
             telegram_callback_id=callback_id,
             raw_update=raw_update,
         )
+        if scheduled_reassign:
+            warning = self._sync_scheduled_reassign(intake, previous_artist, actor)
+            if warning:
+                self.telegram.send_message(text=f"Request #{intake.pk}: {actor.name} accepted, but calendar sync needs review. Reason: {warning}")
+
         self.telegram.answer_callback_query(callback_id, "Accepted.")
         self._mark_external_offer_card_handled(chat_id, message_id, original_text, f"Status: Accepted by {actor.name}.")
         if previous_artist and previous_artist.pk != actor.pk and previous_artist.telegram_chat_id:

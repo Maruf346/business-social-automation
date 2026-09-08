@@ -81,6 +81,43 @@ class GoogleCalendarService:
             )
         return [calendar.calendar_id for calendar in calendars]
 
+    def preflight_artist_schedule(
+        self,
+        intake: IntakeRequest,
+        artist,
+        start_at: datetime,
+        duration_minutes: int = DEFAULT_DURATION_MINUTES,
+    ) -> list[str]:
+        calendars = list(
+            GoogleCalendarConfig.objects.filter(
+                calendar_type=GoogleCalendarType.ARTIST,
+                artist=artist,
+                is_active=True,
+            )
+        )
+        if not calendars:
+            raise GoogleCalendarError(
+                f"{artist.name} does not have an active Google Calendar mapping. Add it in the Admin panel first."
+            )
+        if not self.is_configured():
+            raise GoogleCalendarError("Google Calendar service account credentials are not configured.")
+
+        end_at = start_at + timedelta(minutes=duration_minutes)
+        busy_by_calendar = self._freebusy([calendar.calendar_id for calendar in calendars], start_at, end_at)
+        own_events_by_calendar = self._active_confirmed_events_by_calendar(intake)
+        busy_names = []
+        for calendar in calendars:
+            busy_slots = busy_by_calendar.get(calendar.calendar_id) or []
+            own_event = own_events_by_calendar.get(calendar.pk)
+            if own_event and self._busy_slots_only_match_event(busy_slots, own_event):
+                continue
+            if busy_slots:
+                busy_names.append(calendar.name)
+        if busy_names:
+            raise GoogleCalendarError("Google Calendar conflict found for: " + ", ".join(busy_names))
+        return [calendar.calendar_id for calendar in calendars]
+
+
     def sync_confirmed_schedule(
         self,
         intake: IntakeRequest,
@@ -157,6 +194,68 @@ class GoogleCalendarService:
             synced_event_ids=synced_event_ids,
             warnings=warnings,
         )
+
+
+    def release_confirmed_artist_events_except(
+        self,
+        intake: IntakeRequest,
+        keep_artist,
+    ) -> GoogleCalendarSyncResult:
+        events = list(
+            GoogleCalendarEvent.objects.select_related("calendar").filter(
+                intake=intake,
+                event_type=GoogleCalendarEventType.CONFIRMED_APPOINTMENT,
+                calendar__calendar_type=GoogleCalendarType.ARTIST,
+            ).exclude(
+                calendar__artist=keep_artist,
+            ).exclude(
+                status=GoogleCalendarSyncStatus.RELEASED,
+            )
+        )
+        if not events:
+            return GoogleCalendarSyncResult(checked_calendar_ids=[], synced_event_ids=[], warnings=[])
+        if not self.is_configured():
+            return GoogleCalendarSyncResult(
+                checked_calendar_ids=[event.calendar.calendar_id for event in events],
+                synced_event_ids=[],
+                warnings=["Old artist calendar event was not released because Google Calendar credentials are not configured."],
+            )
+
+        service = self._get_service()
+        released_event_ids: list[str] = []
+        warnings: list[str] = []
+        for event in events:
+            try:
+                if event.google_event_id:
+                    service.events().delete(
+                        calendarId=event.calendar.calendar_id,
+                        eventId=event.google_event_id,
+                    ).execute()
+                event.status = GoogleCalendarSyncStatus.RELEASED
+                event.sync_error = ""
+                event.save(update_fields=["status", "sync_error", "updated_at"])
+                if event.google_event_id:
+                    released_event_ids.append(event.google_event_id)
+            except HttpError as exc:
+                message = self._format_http_error(exc)
+                event.status = GoogleCalendarSyncStatus.FAILED
+                event.sync_error = message
+                event.save(update_fields=["status", "sync_error", "updated_at"])
+                warnings.append(f"{event.calendar.name}: {message}")
+            except Exception as exc:
+                message = str(exc)
+                event.status = GoogleCalendarSyncStatus.FAILED
+                event.sync_error = message
+                event.save(update_fields=["status", "sync_error", "updated_at"])
+                warnings.append(f"{event.calendar.name}: {message}")
+
+        return GoogleCalendarSyncResult(
+            checked_calendar_ids=[event.calendar.calendar_id for event in events],
+            synced_event_ids=released_event_ids,
+            warnings=warnings,
+        )
+
+
     def hold_pending_appointment(
         self,
         intake: IntakeRequest,
@@ -363,6 +462,14 @@ class GoogleCalendarService:
         )
         return {event.calendar_id: event for event in events}
 
+    @staticmethod
+    def _active_confirmed_events_by_calendar(intake: IntakeRequest) -> dict[int, GoogleCalendarEvent]:
+        events = GoogleCalendarEvent.objects.filter(
+            intake=intake,
+            event_type=GoogleCalendarEventType.CONFIRMED_APPOINTMENT,
+            status=GoogleCalendarSyncStatus.SYNCED,
+        )
+        return {event.calendar_id: event for event in events}
     @staticmethod
     def _busy_slots_only_match_event(busy_slots: list[dict[str, str]], event: GoogleCalendarEvent) -> bool:
         if not busy_slots:

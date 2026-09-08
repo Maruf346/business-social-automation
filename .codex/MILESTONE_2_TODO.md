@@ -53,6 +53,7 @@ This checklist tracks what is left after the current vCita, Telegram, Outlook, W
 - [x] Hide assignment buttons once an intake is assigned or has an active external artist offer.
 - [x] Hide Schedule buttons from newly generated review cards; scheduling now uses explicit `/hold` or `/schedule` commands.
 - [x] Add `/reassign REQUEST_ID` to send a short artist-selection card and clear that card after selection.
+- [x] Add scheduled-reassign guardrails: vCita bookings stay within Hoss/Nina-style approvers, and Google-only TA/TC bookings check the new external artist calendar before moving/releasing events.
 
 ## Current Scheduling Flow
 
