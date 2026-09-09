@@ -334,6 +334,7 @@ Outlook subscription renewal fix:
 
 - `WebhookSubscription` saves now capture the previous row in `pre_save` so changes to notification URL, resource, client state, change type, or expiration date are correctly synced to Microsoft Graph in `post_save`.
 - If the previous Microsoft Graph subscription is already expired, the backend creates a fresh subscription instead of trying to renew the old one.
+- If Microsoft Graph returns 404 for a stale subscription ID during renew/delete, the backend now creates a fresh subscription instead of leaving the row failed.
 - Outlook message subscriptions must be renewed within Microsoft Graph's maximum lifetime; use an expiry less than seven days in the future.
 
 ## Webhook Development Notes

@@ -15,8 +15,13 @@ class SubscriptionSyncService:
 
     @classmethod
     def handle_delete(cls, subscription):
-        if subscription.subscription_id:
+        if not subscription.subscription_id:
+            return
+        try:
             GraphSubscriptionService.delete_subscription(subscription)
+        except Exception as exc:
+            if not cls._is_graph_not_found(exc):
+                raise
 
     @classmethod
     def create(cls, subscription):
@@ -53,19 +58,14 @@ class SubscriptionSyncService:
             old.change_type != subscription.change_type,
         ])
         if recreate:
-            try:
-                GraphSubscriptionService.delete_subscription(old)
-                response = GraphSubscriptionService.create_subscription(subscription)
-            except Exception as exc:
-                cls._mark_failed(subscription, exc)
-                return
-            WebhookSubscription.objects.filter(pk=subscription.pk).update(
-                subscription_id=response["id"],
-                expiration_date=response["expirationDateTime"],
-                status="ACTIVE",
-                last_synced_at=timezone.now(),
-                sync_error="",
-            )
+            if old.subscription_id:
+                try:
+                    GraphSubscriptionService.delete_subscription(old)
+                except Exception as exc:
+                    if not cls._is_graph_not_found(exc):
+                        cls._mark_failed(subscription, exc)
+                        return
+            cls.create(subscription)
             return
 
         if old.expiration_date and old.expiration_date <= timezone.now():
@@ -76,6 +76,9 @@ class SubscriptionSyncService:
             try:
                 response = GraphSubscriptionService.renew_subscription(subscription)
             except Exception as exc:
+                if cls._is_graph_not_found(exc):
+                    cls.create(subscription)
+                    return
                 cls._mark_failed(subscription, exc)
                 return
             WebhookSubscription.objects.filter(pk=subscription.pk).update(
@@ -92,6 +95,10 @@ class SubscriptionSyncService:
             last_synced_at=timezone.now(),
             sync_error=cls._format_error(exc),
         )
+
+    @staticmethod
+    def _is_graph_not_found(exc):
+        return isinstance(exc, requests.HTTPError) and exc.response is not None and exc.response.status_code == 404
 
     @staticmethod
     def _format_error(exc):

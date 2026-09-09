@@ -299,6 +299,7 @@ Outlook subscription update fix:
 
 - `WebhookSubscription` updates now compare against the pre-save row, so Admin panel changes renew or recreate the Microsoft Graph webhook correctly.
 - Expired Outlook subscriptions are recreated on save. Set expiration within Microsoft Graph's supported Outlook subscription lifetime, not weeks ahead.
+- If Graph returns 404 for a stale local subscription ID, the backend recreates the subscription.
 
 ## Documentation Maintenance Rule
 
