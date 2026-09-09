@@ -287,6 +287,13 @@ Artist assignment rules:
 
 The backend needs a canonical Telegram identity model for Hoss and every artist, including Telegram numeric user ID and private chat ID.
 
+
+Service notes notification update:
+
+- `VcitaService.notes` is now appended to client-facing appointment scheduled/rescheduled notices. Keep client-readable service explanations there, for example deposit or meeting-link expectations for OCH.
+- vCita paid webhooks now notify the client when the backend receives a first paid event. If the paid event finalizes an active pending hold, the client receives the final appointment confirmation instead of a separate generic payment notice.
+- If client notification fails during vCita webhook handling, the webhook still completes and Telegram receives a clear failure message for Hoss/Nina.
+
 ## Documentation Maintenance Rule
 
 Whenever implementation changes:

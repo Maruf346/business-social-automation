@@ -226,7 +226,9 @@ Current behavior:
 - Payment/cancel/reschedule webhook events first match by booking/appointment/meeting ID against `IntakeRequest.vcita_booking_uid`.
 - Financial webhooks can also match by `matter_uid` or by invoice/payment/deposit UID. If vCita sends only a financial UID, the backend fetches the full vCita object and reads its `matter_uid`.
 - `VcitaFinancialRecord` stores invoice, deposit, and payment IDs, status, amount, currency, raw payload, and the matched intake/lead.
+- Service notes are client-facing: VcitaService.notes is appended to appointment scheduled/rescheduled notifications sent to the client.
 - Paid/recorded payment webhooks auto-finalize a pending hold only when exactly one request is matched. If the request is already scheduled, the backend reports that no duplicate booking was created. If final vCita booking fails, the pending hold remains active and Telegram is notified.
+- On the first paid webhook, the backend sends a client payment confirmation unless that webhook finalizes a pending hold; finalized holds send the client the appointment confirmation with service notes.
 - Unknown, ambiguous, or unmatched vCita webhook payloads are stored with `unmatched` or `failed` status and Telegram asks Hoss/Nina to review the Admin panel.
 
 Scheduling:

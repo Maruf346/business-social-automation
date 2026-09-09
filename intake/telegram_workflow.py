@@ -1992,11 +1992,17 @@ class TelegramWorkflowService:
     @staticmethod
     def _format_client_schedule_notice(result: VcitaScheduleResult) -> str:
         action = "rescheduled" if result.was_reschedule else "scheduled"
-        return (
-            f"Your {result.service.name} appointment has been {action} for "
-            f"{result.requested_date} at {result.requested_time}. "
-            "Please let us know if you need to change anything."
-        )
+        lines = [
+            (
+                f"Your {result.service.name} appointment has been {action} for "
+                f"{result.requested_date} at {result.requested_time}."
+            )
+        ]
+        service_note = (result.service.notes or "").strip()
+        if service_note:
+            lines.extend(["", service_note])
+        lines.extend(["", "Please let us know if you need to change anything."])
+        return "\n".join(lines)
 
     @staticmethod
     def _get_artist_by_user(telegram_user_id: Any) -> ArtistProfile | None:

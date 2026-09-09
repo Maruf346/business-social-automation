@@ -11,7 +11,9 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from core.services.telegram_bot_service import TelegramBotService
-from intake.models import IntakeRequest, PaymentStatus, PendingHoldStatus, ScheduleStatus
+from intake.models import IntakeRequest, OutboundActionType, PaymentStatus, PendingHoldStatus, ScheduleStatus
+from intake.outbound import ClientOutboundService
+from lead.choices import SEND_BY
 from vcita.api import VcitaAPIClient, VcitaAPIError
 from vcita.scheduling import VcitaSchedulingError, VcitaSchedulingService
 
@@ -133,6 +135,7 @@ class VcitaWebhook(APIView):
             return
 
         intake = intakes[0]
+        payment_was_already_paid = intake.payment_status == PaymentStatus.PAID
         message = cls._apply_event_to_intake(intake, normalized_event, reference_uid, event)
         if not message:
             event.status = VcitaWebhookStatus.PROCESSED
@@ -151,7 +154,9 @@ class VcitaWebhook(APIView):
         cls._notify_telegram(message)
 
         if cls._is_paid_event(normalized_event):
-            cls._try_finalize_pending_hold(intake, event)
+            finalized = cls._try_finalize_pending_hold(intake, event)
+            if not finalized and not payment_was_already_paid:
+                cls._notify_client_payment_received(intake)
 
     @classmethod
     def _resolve_intakes(
@@ -270,20 +275,20 @@ class VcitaWebhook(APIView):
         return message
 
     @classmethod
-    def _try_finalize_pending_hold(cls, intake: IntakeRequest, event: VcitaWebhookEvent) -> None:
+    def _try_finalize_pending_hold(cls, intake: IntakeRequest, event: VcitaWebhookEvent) -> bool:
         if intake.pending_hold_status != PendingHoldStatus.ACTIVE:
-            return
+            return False
         if intake.schedule_status in {ScheduleStatus.SCHEDULED, ScheduleStatus.RESCHEDULED} and intake.vcita_booking_uid:
             cls._notify_telegram(
                 f"Request #{intake.pk}: payment is paid, but final appointment already exists. No duplicate booking was created."
             )
-            return
+            return False
         service_code = intake.pending_hold_service_code
         if not service_code:
             cls._notify_telegram(
                 f"Request #{intake.pk}: payment is paid, but no pending service code is stored. Please schedule manually."
             )
-            return
+            return False
         try:
             result = VcitaSchedulingService(account=event.account).schedule_intake(
                 intake=intake,
@@ -296,13 +301,64 @@ class VcitaWebhook(APIView):
                 f"Request #{intake.pk}: payment is paid, but final vCita appointment could not be created. "
                 f"Pending hold remains active. Reason: {exc}"
             )
-            return
+            return False
 
         cls._notify_telegram(
             f"Request #{intake.pk}: payment is paid and final appointment was created. "
             f"When: {result.requested_date} at {result.requested_time}. "
             f"vCita booking ID: {result.booking_uid}"
         )
+        cls._notify_client_schedule_created(result)
+        return True
+
+    @classmethod
+    def _notify_client_payment_received(cls, intake: IntakeRequest) -> None:
+        cls._send_client_notice(
+            intake=intake,
+            text=(
+                "Thank you, we have received your vCita payment. "
+                "Our team will continue with your booking and update you shortly."
+            ),
+            label="payment confirmation",
+        )
+
+    @classmethod
+    def _notify_client_schedule_created(cls, result) -> None:
+        cls._send_client_notice(
+            intake=result.intake,
+            text=cls._format_client_schedule_notice(result),
+            label="appointment confirmation",
+        )
+
+    @classmethod
+    def _send_client_notice(cls, intake: IntakeRequest, text: str, label: str) -> None:
+        try:
+            ClientOutboundService.send_intake_reply(
+                intake=intake,
+                text=text,
+                action_type=OutboundActionType.SCHEDULE_NOTIFICATION,
+                send_by=SEND_BY.AGENT,
+            )
+        except Exception as exc:
+            logger.exception("Could not send vCita %s to client for intake=%s", label, intake.pk)
+            cls._notify_telegram(
+                f"Request #{intake.pk}: could not send {label} to client. Reason: {exc}"
+            )
+
+    @staticmethod
+    def _format_client_schedule_notice(result) -> str:
+        action = "rescheduled" if result.was_reschedule else "scheduled"
+        lines = [
+            (
+                f"Your {result.service.name} appointment has been {action} for "
+                f"{result.requested_date} at {result.requested_time}."
+            )
+        ]
+        service_note = (result.service.notes or "").strip()
+        if service_note:
+            lines.extend(["", service_note])
+        lines.extend(["", "Please let us know if you need to change anything."])
+        return "\n".join(lines)
 
     @classmethod
     def _extract_booking_uid(cls, event: VcitaWebhookEvent) -> str:

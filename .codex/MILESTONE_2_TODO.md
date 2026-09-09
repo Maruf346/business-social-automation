@@ -100,6 +100,8 @@ This checklist tracks what is left after the current vCita, Telegram, Outlook, W
 - [ ] Add a reconciliation flow for missed payment webhooks.
 - [x] Notify Telegram group when payment is paid, cancelled, refunded, or cannot be matched.
 - [x] Trigger final appointment creation after payment when one matching pending hold exists.
+- [x] Append VcitaService.notes to client-facing appointment scheduled/rescheduled notices.
+- [x] Notify client on first vCita paid webhook, using final appointment notice when a pending hold is finalized.
 
 ## External Artist Flow
 
