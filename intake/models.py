@@ -181,6 +181,7 @@ class IntakeRequest(models.Model):
     )
     is_active = models.BooleanField(default=True, db_index=True)
 
+    client_name = models.CharField(max_length=255, blank=True, default="")
     tattoo_idea = models.TextField(blank=True, default="")
     style_tags = models.JSONField(default=list, blank=True)
     placement = models.CharField(max_length=255, blank=True, default="")
@@ -219,6 +220,11 @@ class IntakeRequest(models.Model):
 
     appointment_date = models.CharField(max_length=10, blank=True, default="")
     appointment_time = models.CharField(max_length=5, blank=True, default="")
+    appointment_type = models.CharField(max_length=50, blank=True, default="")
+    preferred_artist = models.CharField(max_length=100, blank=True, default="")
+    tattoo_project_type = models.CharField(max_length=100, blank=True, default="")
+    auto_reply_allowed = models.BooleanField(default=True)
+    telegram_review_required = models.BooleanField(default=False, db_index=True)
     scheduled_date = models.CharField(max_length=10, blank=True, default="")
     scheduled_time = models.CharField(max_length=5, blank=True, default="")
     scheduled_service = models.ForeignKey(
@@ -307,6 +313,7 @@ class AIAnalysis(models.Model):
 
     endpoint = models.CharField(max_length=100, default="analyze")
 
+    client_name = models.CharField(max_length=255, blank=True, default="")
     tattoo_idea = models.TextField(blank=True, default="")
     style_tags = models.JSONField(default=list, blank=True)
     placement = models.CharField(max_length=255, blank=True, default="")
@@ -333,6 +340,11 @@ class AIAnalysis(models.Model):
     draft_reply = models.TextField(blank=True, default="")
     appointment_date = models.CharField(max_length=10, blank=True, default="")
     appointment_time = models.CharField(max_length=5, blank=True, default="")
+    appointment_type = models.CharField(max_length=50, blank=True, default="")
+    preferred_artist = models.CharField(max_length=100, blank=True, default="")
+    tattoo_project_type = models.CharField(max_length=100, blank=True, default="")
+    auto_reply_allowed = models.BooleanField(default=True)
+    telegram_review_required = models.BooleanField(default=False, db_index=True)
     raw_response = models.JSONField(default=dict, blank=True)
 
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)

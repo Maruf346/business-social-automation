@@ -1,6 +1,6 @@
 # Development Guide
 
-Last reviewed: 2026-09-07
+Last reviewed: 2026-09-09
 
 ## Local Environment
 
@@ -321,6 +321,11 @@ Backend expectations today:
 Do not implement AI extraction logic in this repo unless the project scope changes. This backend should validate, persist, and act on AI service responses.
 
 See `AI_INTEGRATION_CONTRACT.md` for the full endpoint payload and response contract.
+
+
+Current AI request payload includes `message_source`. Use the active intake/source when calling AI from WhatsApp, Outlook, or management-command summary flows. Current message images go in `new_image_urls`; previous incoming image URLs are available to AI through `existing_db_state.intake.previous_image_urls`.
+
+Current AI response fields persisted by the backend include `client_name`, `preferred_artist`, `appointment_type`, `tattoo_project_type`, `auto_reply_allowed`, and `telegram_review_required` in addition to the earlier tattoo details, risk, summary, price, date/time, and draft reply fields.
 
 ## Webhook Development Notes
 

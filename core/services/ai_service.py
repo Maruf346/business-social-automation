@@ -34,6 +34,7 @@ class AIService:
         lead: Lead,
         image_urls: Optional[list[str]] = None,
         existing_db_state: Optional[dict] = None,
+        message_source: Optional[str] = None,
     ):
         if not self._url:
             logger.error("AI_SERVICE.API_URL is not configured; using fallback reply.")
@@ -42,7 +43,7 @@ class AIService:
                 "risk_level": "low",
             }
 
-        payload = self._build_payload(current_message, chat_history, lead, image_urls, existing_db_state)
+        payload = self._build_payload(current_message, chat_history, lead, image_urls, existing_db_state, message_source)
         logger.info("AI Request Payload: %s", payload)
         
         try:
@@ -99,12 +100,13 @@ class AIService:
         current_message="",
         image_urls: Optional[list[str]] = None,
         existing_db_state: Optional[dict] = None,
+        message_source: Optional[str] = None,
     ):
         if not self.summary_url:
             logger.error("AI_SERVICE.SUMMARY_API_URL is not configured.")
             raise AIServiceError("AI summary API URL is not configured.")
 
-        payload = self._build_payload(current_message, chat_history, lead, image_urls, existing_db_state)
+        payload = self._build_payload(current_message, chat_history, lead, image_urls, existing_db_state, message_source)
         response = requests.post(
             self.summary_url,
             json=payload,
@@ -123,6 +125,7 @@ class AIService:
         lead: Lead,
         image_urls: Optional[list[str]] = None,
         existing_db_state: Optional[dict] = None,
+        message_source: Optional[str] = None,
     ) -> dict:
         history: list[dict[str, str]] = []
         for msg in chat_history:
@@ -144,9 +147,11 @@ class AIService:
                 }
             }
 
+        source = (message_source or (existing_db_state.get("intake", {}).get("source") if isinstance(existing_db_state, dict) else "") or lead.source or "").strip()
         return {
             "current_message": current_message,
             "new_image_urls": image_urls or [],
             "existing_db_state": existing_db_state,
             "recent_chat_history": history,
+            "message_source": source,
         }

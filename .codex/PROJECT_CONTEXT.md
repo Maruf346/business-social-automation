@@ -1,6 +1,6 @@
 # Project Context
 
-Last reviewed: 2026-09-07
+Last reviewed: 2026-09-09
 
 ## Product Goal
 
@@ -241,6 +241,16 @@ Important implementation rule:
 - The backend database must store the latest structured intake state returned by AI after every message.
 - That stored state must be sent back to AI as `existing_db_state` on the next message.
 - This is how AI knows what is already known and what is still missing.
+
+
+AI contract update on 2026-09-09:
+
+- AI requests include `message_source`.
+- Current-turn images remain in `new_image_urls`.
+- Previous incoming image URLs are sent in `existing_db_state.intake.previous_image_urls` so AI can remember reference images across later messages.
+- `client_name`, `preferred_artist`, `appointment_type`, `tattoo_project_type`, `auto_reply_allowed`, and `telegram_review_required` are persisted on both `IntakeRequest` and `AIAnalysis`.
+- Telegram review/artist cards show client name when available and appointment type as `Preferred Appointment Type: Online` or `Preferred Appointment Type: Studio Visit`.
+- Telegram review is forced when AI returns `telegram_review_required=true` or `auto_reply_allowed=false`; low-risk auto-reply requires both `risk_level=low` and `auto_reply_allowed=true`.
 
 ## Human Roles
 

@@ -1443,6 +1443,13 @@ class TelegramWorkflowService:
             f"Idea: {escape(intake.tattoo_idea or 'Unclear')}",
             f"Price: {escape(intake.approved_price or intake.ai_suggested_price or 'Not approved')}",
         ]
+        appointment_type = self._format_appointment_type(intake.appointment_type)
+        if appointment_type:
+            detail_lines.append(f"Preferred Appointment Type: {escape(appointment_type)}")
+        if intake.preferred_artist:
+            detail_lines.append(f"Preferred artist: {escape(intake.preferred_artist)}")
+        if intake.tattoo_project_type:
+            detail_lines.append(f"Project type: {escape(intake.tattoo_project_type)}")
         if intake.placement:
             detail_lines.append(f"Placement: {escape(intake.placement)}")
         if intake.size_estimate_cm:
@@ -1730,10 +1737,23 @@ class TelegramWorkflowService:
         if status_text:
             status_section = f"\n<b>{escape(status_text)}</b>\n"
 
+        context_lines = []
+        if intake.client_name:
+            context_lines.append(f"Client name: {escape(intake.client_name)}")
+        appointment_type = self._format_appointment_type(intake.appointment_type)
+        if appointment_type:
+            context_lines.append(f"Preferred Appointment Type: {escape(appointment_type)}")
+        if intake.preferred_artist:
+            context_lines.append(f"Preferred artist: {escape(intake.preferred_artist)}")
+        if intake.tattoo_project_type:
+            context_lines.append(f"Project type: {escape(intake.tattoo_project_type)}")
+        context_section = f"{chr(10).join(context_lines)}\n" if context_lines else ""
+
         return (
             f"<b>High-risk request #{intake.pk}</b>\n"
             f"Client: {escape(str(intake.lead))}\n"
             f"Source: {escape(intake.source)}\n"
+            f"{context_section}"
             f"Idea: {escape(intake.tattoo_idea or 'Unclear')}\n"
             f"Artist suggestion: {escape(intake.suggested_artist or 'Unclear')}\n"
             f"Missing: {escape(', '.join(intake.missing_information) or 'None')}\n\n"
@@ -1758,6 +1778,13 @@ class TelegramWorkflowService:
             f"Idea: {escape(intake.tattoo_idea or 'Unclear')}",
             f"Approved Price: {escape(intake.approved_price or 'Not approved')}",
         ]
+        appointment_type = self._format_appointment_type(intake.appointment_type)
+        if appointment_type:
+            detail_lines.append(f"Preferred Appointment Type: {escape(appointment_type)}")
+        if intake.preferred_artist:
+            detail_lines.append(f"Preferred artist: {escape(intake.preferred_artist)}")
+        if intake.tattoo_project_type:
+            detail_lines.append(f"Project type: {escape(intake.tattoo_project_type)}")
         if intake.ai_suggested_price:
             detail_lines.append(f"AI suggested price: {escape(intake.ai_suggested_price or 'None')}")
         if intake.price_note:
@@ -1788,6 +1815,7 @@ class TelegramWorkflowService:
         return (
             f"<b>Request #{intake.pk}</b>\n"
             f"Client: {escape(str(intake.lead))}\n"
+            f"{f'Client name: {escape(intake.client_name)}' + chr(10) if intake.client_name else ''}"
             f"Source: {escape(intake.source)}\n"
             f"{chr(10).join(detail_lines)}"
             f"{summary_section}\n\n"
@@ -1824,6 +1852,14 @@ class TelegramWorkflowService:
     def _parse_price_text(text: str) -> tuple[str, str]:
         price, separator, note = text.partition("|")
         return price.strip(), note.strip() if separator else ""
+
+    @staticmethod
+    def _format_appointment_type(value: str) -> str:
+        labels = {
+            "online": "Online",
+            "studio_visit": "Studio Visit",
+        }
+        return labels.get((value or "").strip().lower(), "")
 
     @staticmethod
     def _schedule_command_help() -> str:

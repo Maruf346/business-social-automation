@@ -80,6 +80,7 @@ class Command(BaseCommand):
                 current_message=current_message,
                 image_urls=[],
                 existing_db_state=existing_db_state,
+                message_source=intake.source,
             )
         except (AIServiceError, Exception):
             return Command._fallback_summary(intake)

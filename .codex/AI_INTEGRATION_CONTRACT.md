@@ -1,6 +1,6 @@
 # AI Integration Contract
 
-Last reviewed: 2026-08-27
+Last reviewed: 2026-09-09
 
 ## Ownership Boundary
 
@@ -163,6 +163,26 @@ Known error responses:
 - `422`: validation error.
 - `502`: upstream AI pipeline failed.
 - `503`: AI service is not configured.
+
+
+## 2026-09-09 Contract Update
+
+The AI analysis and Telegram-summary endpoints now receive a source-aware payload. The backend sends `message_source` as `whatsapp`, `outlook`, or the intake source value. New images from the current message continue to be sent through `new_image_urls`.
+
+Previously received image URLs are not repeated as new images. Instead, the backend now sends them in `existing_db_state.intake.previous_image_urls`, excluding the current message, so AI can remember earlier reference images while still knowing which images are new in this turn.
+
+The analysis response now includes additional structured fields that the backend persists on both `IntakeRequest` and `AIAnalysis`:
+
+- `client_name`
+- `preferred_artist`
+- `appointment_type`, normalized to `online` or `studio_visit`
+- `tattoo_project_type`
+- `auto_reply_allowed`
+- `telegram_review_required`
+
+Routing now considers AI's control flags in addition to risk level. If `telegram_review_required=true` or `auto_reply_allowed=false`, the backend sends the request to Telegram review even when `risk_level` is `low`. Low-risk auto-reply only happens when AI returns `risk_level=low` and `auto_reply_allowed=true`.
+
+Telegram cards now show the stored client name when available and render `appointment_type` as `Preferred Appointment Type: Online` or `Preferred Appointment Type: Studio Visit`.
 
 ## Backend Persistence Requirements
 

@@ -1,6 +1,6 @@
 # Milestone 2 TODO
 
-Last updated: 2026-09-08
+Last updated: 2026-09-09
 
 This checklist tracks what is left after the current vCita, Telegram, Outlook, WhatsApp, AI, and Google Calendar work. Use this file as the working TODO list; update checkboxes as each item is completed and verified.
 ## Next Recommended Order
@@ -149,13 +149,13 @@ This checklist tracks what is left after the current vCita, Telegram, Outlook, W
 
 ## AI And Backend Contract
 
-- [ ] Confirm AI sends `date` as `YYYY-MM-DD`.
-- [ ] Confirm AI sends `time` as `HH:MM`.
+- [x] Confirm AI sends `date` as `YYYY-MM-DD`.
+- [x] Confirm AI sends `time` as `HH:MM`.
 - [ ] Confirm AI sends `summary` in a Telegram-friendly length and format.
 - [ ] Confirm AI low-risk missing-info conversations can continue automatically when cold-start mode is not intended to force manual review.
 - [ ] Confirm high-risk behavior intentionally triggers Telegram summary/card.
-- [ ] Decide whether AI should return a service code, appointment type, or only date/time.
-- [ ] Keep backend fallback behavior clear when AI does not return a service code.
+- [x] Decide whether AI should return appointment type. AI now returns `appointment_type=online|studio_visit`; service code remains selected explicitly by Hoss/Nina through Telegram commands.
+- [x] Keep backend fallback behavior clear when AI does not return a service code; `/hold` and `/schedule` require explicit service code.
 - [ ] Separate long AI reasoning from staff-facing summary if Telegram cards become too noisy.
 
 ## Admin And Operations

@@ -104,7 +104,7 @@ def process_message_reply(self, incoming_message_id: int, lead_id: int, waba_id:
             "artist_id": intake.assigned_artist_id,
         }
 
-    existing_db_state = IntakeStateService.build_existing_db_state(lead=lead, intake=intake)
+    existing_db_state = IntakeStateService.build_existing_db_state(lead=lead, intake=intake, current_message=incoming_msg)
 
     # Call AI API ──────────────────────
     ai_svc = AIService()
@@ -115,6 +115,7 @@ def process_message_reply(self, incoming_message_id: int, lead_id: int, waba_id:
             lead=lead,
             image_urls=image_urls if image_urls else None,
             existing_db_state=existing_db_state,
+            message_source=IntakeSource.WHATSAPP,
         )
         draft_reply: str = reply_text.get("draft_reply", "")
     except AIServiceError as exc:
@@ -143,7 +144,8 @@ def process_message_reply(self, incoming_message_id: int, lead_id: int, waba_id:
     )
 
     risk_level = ai_analysis.risk_level
-    if risk_level in (RiskLevel.HIGH, RiskLevel.MEDIUM, RiskLevel.UNKNOWN):
+    review_required = ai_analysis.telegram_review_required or not ai_analysis.auto_reply_allowed or risk_level in (RiskLevel.HIGH, RiskLevel.MEDIUM, RiskLevel.UNKNOWN)
+    if review_required:
         try:
             ClientOutboundService.send_intake_reply(
                 intake=intake,
@@ -163,6 +165,7 @@ def process_message_reply(self, incoming_message_id: int, lead_id: int, waba_id:
             lead=lead,
             intake=intake,
             latest_analysis=ai_analysis,
+            current_message=incoming_msg,
         )
         reply_summery = ai_svc.get_summery(
             chat_history=history,
@@ -170,6 +173,7 @@ def process_message_reply(self, incoming_message_id: int, lead_id: int, waba_id:
             current_message=current_message_body,
             image_urls=image_urls if image_urls else None,
             existing_db_state=existing_db_state,
+            message_source=IntakeSource.WHATSAPP,
         )
 
         summary = reply_summery.get("summary", "")
@@ -180,7 +184,7 @@ def process_message_reply(self, incoming_message_id: int, lead_id: int, waba_id:
             "intake_id": intake.pk,
             "ai_analysis_id": ai_analysis.pk,
         }
-    elif risk_level in ("low",):
+    elif risk_level in ("low",) and ai_analysis.auto_reply_allowed:
         # Save outgoing message ──────────────────────
         outgoing = None
 
@@ -409,7 +413,7 @@ def step2_generate_ai_reply(self, pipeline_data: dict) -> dict:
         pipeline_data["intake_id"] = intake.pk
         return pipeline_data
 
-    existing_db_state = IntakeStateService.build_existing_db_state(lead=lead, intake=intake)
+    existing_db_state = IntakeStateService.build_existing_db_state(lead=lead, intake=intake, current_message=incoming_message)
 
     logger.info("Stage 2 started: AI Generate | conv_id=%s attempt=%s", conversation_id, self.request.retries)
 
@@ -421,6 +425,7 @@ def step2_generate_ai_reply(self, pipeline_data: dict) -> dict:
             lead=lead,
             image_urls=pipeline_data.get("image_urls") or None,
             existing_db_state=existing_db_state,
+            message_source=IntakeSource.OUTLOOK,
         )
         draft_reply: str = reply_text.get("draft_reply", "")
     except Exception as exc: # Replace Exception with AIServiceError if appropriately imported
@@ -447,12 +452,15 @@ def step2_generate_ai_reply(self, pipeline_data: dict) -> dict:
     pipeline_data["risk_level"] = risk_level
     pipeline_data["intake_id"] = intake.pk
     pipeline_data["ai_analysis_id"] = ai_analysis.pk
-    if risk_level in (RiskLevel.HIGH, RiskLevel.MEDIUM, RiskLevel.UNKNOWN):
+    review_required = ai_analysis.telegram_review_required or not ai_analysis.auto_reply_allowed or risk_level in (RiskLevel.HIGH, RiskLevel.MEDIUM, RiskLevel.UNKNOWN)
+    pipeline_data["review_required"] = review_required
+    if review_required:
         # Prepare the Client Summery====
         existing_db_state = IntakeStateService.build_existing_db_state(
             lead=lead,
             intake=intake,
             latest_analysis=ai_analysis,
+            current_message=incoming_message,
         )
         reply_summery = ai_svc.get_summery(
             chat_history=history,
@@ -460,6 +468,7 @@ def step2_generate_ai_reply(self, pipeline_data: dict) -> dict:
             current_message=pipeline_data["incoming_text"],
             image_urls=pipeline_data.get("image_urls") or None,
             existing_db_state=existing_db_state,
+            message_source=IntakeSource.OUTLOOK,
         )
         summary = reply_summery.get("summary", "")
         # draft_reply = reply_summery.get("draft_reply", "")
@@ -508,7 +517,8 @@ def step3_send_outlook_reply(self, pipeline_data: dict) -> dict:
     logger.info("Stage 3 started: Send Reply | msg_id=%s attempt=%s", message_id, self.request.retries)
 
     risk_level = pipeline_data.get("risk_level", "low")
-    if risk_level in (RiskLevel.HIGH, RiskLevel.MEDIUM, RiskLevel.UNKNOWN):
+    review_required = pipeline_data.get("review_required") or risk_level in (RiskLevel.HIGH, RiskLevel.MEDIUM, RiskLevel.UNKNOWN)
+    if review_required:
         summary = pipeline_data.get("summary")
         try:
             ClientOutboundService.send_intake_reply(
@@ -592,4 +602,3 @@ def step3_send_outlook_reply(self, pipeline_data: dict) -> dict:
         }
 
 # =========================================================================
-
