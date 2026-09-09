@@ -253,7 +253,7 @@ class AIAnalysisAdmin(admin.ModelAdmin):
         "summary",
         "suggested_price",
     )
-    readonly_fields = ("created_at",)
+    readonly_fields = ("request_payload", "raw_response", "created_at")
     raw_id_fields = ("intake", "lead", "message")
     fieldsets = (
         (
@@ -315,6 +315,7 @@ class AIAnalysisAdmin(admin.ModelAdmin):
             {
                 "classes": ("collapse",),
                 "fields": (
+                    "request_payload",
                     "raw_response",
                     "created_at",
                 ),

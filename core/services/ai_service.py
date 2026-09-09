@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 _FALLBACK_REPLY = (
     "Thank you for your message! Our team is currently reviewing your "
-    "request and will get back to you shortly. 🙏"
+    "request and will get back to you shortly."
 )
 
 
@@ -25,6 +25,7 @@ class AIService:
         self._url: str = ai_cfg.get("API_URL", "")
         self.summary_url: str = ai_cfg.get("SUMMARY_API_URL", "")
         self._timeout: int = ai_cfg.get("TIMEOUT", 30)
+        self.last_request_payload: dict = {}
 
     # Public API
     def get_reply(
@@ -44,6 +45,7 @@ class AIService:
             }
 
         payload = self._build_payload(current_message, chat_history, lead, image_urls, existing_db_state, message_source)
+        self.last_request_payload = payload
         logger.info("AI Request Payload: %s", payload)
         
         try:
@@ -107,6 +109,7 @@ class AIService:
             raise AIServiceError("AI summary API URL is not configured.")
 
         payload = self._build_payload(current_message, chat_history, lead, image_urls, existing_db_state, message_source)
+        self.last_request_payload = payload
         response = requests.post(
             self.summary_url,
             json=payload,

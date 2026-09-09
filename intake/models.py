@@ -346,6 +346,7 @@ class AIAnalysis(models.Model):
     auto_reply_allowed = models.BooleanField(default=True)
     telegram_review_required = models.BooleanField(default=False, db_index=True)
     raw_response = models.JSONField(default=dict, blank=True)
+    request_payload = models.JSONField(default=dict, blank=True)
 
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)
 

@@ -179,6 +179,7 @@ Models:
 - `OutboundAction`: pending/sent/failed audit records for client reply attempts.
 - `ExternalArtistOffer`: offer state for non-approver artists before final assignment and client contact release.
 - Current intake state stores AI summary, AI suggested price, Hoss-approved price, price note, approver, approval timestamp, AI-proposed appointment date/time, pending hold service/date/time/expiry/review state, chosen vCita service snapshot, schedule state, vCita Matter UID, vCita booking UID, and payment state.
+- `AIAnalysis.request_payload` stores the exact `/analyze` request payload for Admin-panel debugging. Use it to confirm `new_image_urls`, `existing_db_state.intake.previous_image_urls`, and `message_source`. Do not feed this field back into AI state.
 - Admin panel for `IntakeRequest` is organized for local testing: summary, draft reply, AI suggested price, approved price, price note, appointment date, and appointment time can be edited directly before sending a Telegram review card.
 
 Service:

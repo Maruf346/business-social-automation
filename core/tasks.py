@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 
 _AI_FALLBACK_REPLY = (
     "Thank you for reaching out! We're currently experiencing high demand "
-    "and will respond as soon as possible. 🙏"
+    "and will respond as soon as possible."
 )
 
 # =========================================================================
@@ -51,16 +51,16 @@ def process_message_reply(self, incoming_message_id: int, lead_id: int, waba_id:
         lead_id, incoming_message_id, self.request.retries, media_id or "none",
     )
 
-    # Re-fetch ORM objects ──────────────────────
+    # Re-fetch ORM objects 
     try:
         lead = Lead.objects.get(pk=lead_id)
         waba = WhatsAppAccount.objects.get(pk=waba_id)
         incoming_msg = Message.objects.get(pk=incoming_message_id)
     except (Lead.DoesNotExist, WhatsAppAccount.DoesNotExist, Message.DoesNotExist) as exc:
-        logger.error("DB lookup failed — aborting task: %s", exc)
+        logger.error("DB lookup failed â€” aborting task: %s", exc)
         return {"status": "aborted", "reason": str(exc)}
 
-    # Download media if present ──────────────────────
+    # Download media if present 
     image_urls: list[str] = []
     if media_id:
         try:
@@ -78,11 +78,11 @@ def process_message_reply(self, incoming_message_id: int, lead_id: int, waba_id:
             )
         except MediaDownloadError:
             logger.exception(
-                "Failed to download media media_id=%s — continuing without image",
+                "Failed to download media media_id=%s - continuing without image",
                 media_id,
             )
 
-    # Fetch chat history ──────────────────────
+    # Fetch chat history 
     history = MessageService.get_chat_history(lead)
     intake = IntakeStateService.get_or_create_active_intake(lead=lead)
     IntakeStateService.update_channel_context(
@@ -106,7 +106,7 @@ def process_message_reply(self, incoming_message_id: int, lead_id: int, waba_id:
 
     existing_db_state = IntakeStateService.build_existing_db_state(lead=lead, intake=intake, current_message=incoming_msg)
 
-    # Call AI API ──────────────────────
+    # Call AI API 
     ai_svc = AIService()
     try:
         reply_text = ai_svc.get_reply(
@@ -141,6 +141,7 @@ def process_message_reply(self, incoming_message_id: int, lead_id: int, waba_id:
         message=incoming_msg,
         response=reply_text,
         endpoint="analyze",
+        request_payload=ai_svc.last_request_payload,
     )
 
     risk_level = ai_analysis.risk_level
@@ -185,10 +186,10 @@ def process_message_reply(self, incoming_message_id: int, lead_id: int, waba_id:
             "ai_analysis_id": ai_analysis.pk,
         }
     elif risk_level in ("low",) and ai_analysis.auto_reply_allowed:
-        # Save outgoing message ──────────────────────
+        # Save outgoing message 
         outgoing = None
 
-        # Send via Meta API ──────────────────────
+        # Send via Meta API 
         try:
             time.sleep(2)
             outgoing = ClientOutboundService.send_intake_reply(
@@ -197,7 +198,7 @@ def process_message_reply(self, incoming_message_id: int, lead_id: int, waba_id:
                 action_type=OutboundActionType.AI_AUTO_REPLY,
                 send_by=SEND_BY.AI,
             )
-            # Link Meta wamid ──────────────────────
+            # Link Meta wamid 
         except MetaAPIError:
             if self.request.retries >= self.max_retries:
                 logger.exception(
@@ -296,12 +297,12 @@ def step1_fetch_and_save_email(self, outlook_account_id: int, message_id: str, r
     try:
         email_data = outlook_svc.fetch_message(user_id, message_id)
     except OutlookAPIError as exc:
-        # ErrorItemNotFound ফিক্স (Deleted বা Missing মেইলের ক্ষেত্রে abort করা)
+        # ErrorItemNotFound 
         if "ErrorItemNotFound" in str(exc) or getattr(exc, 'status_code', None) == 404:
             logger.warning("Message %s not found in Outlook (might be deleted/moved). Aborting pipeline.", message_id)
             return {"pipeline_status": "aborted", "reason": "ErrorItemNotFound"}
         
-        # অন্য কোনো API Error হলে retry করবে
+        # Retry for other errors
         raise self.retry(exc=exc)
 
     sender_info = email_data.get("from", {}).get("emailAddress", {})
@@ -352,9 +353,9 @@ def step1_fetch_and_save_email(self, outlook_account_id: int, message_id: str, r
                     if result and MediaService.is_image_mime(att.get("contentType", "")):
                         image_urls.append(result.public_url)
                 except MediaDownloadError:
-                    logger.exception("Failed to save attachment '%s' — skipping", att.get("name", "unknown"))
+                    logger.exception("Failed to save attachment '%s' - skipping", att.get("name", "unknown"))
         except OutlookAPIError:
-            logger.exception("Failed to fetch attachments for msg_id=%s — continuing without", message_id)
+            logger.exception("Failed to fetch attachments for msg_id=%s - continuing without", message_id)
 
     return {
         "pipeline_status": "continue",
@@ -446,6 +447,7 @@ def step2_generate_ai_reply(self, pipeline_data: dict) -> dict:
         message=incoming_message,
         response=reply_text,
         endpoint="analyze",
+        request_payload=ai_svc.last_request_payload,
     )
 
     risk_level = ai_analysis.risk_level

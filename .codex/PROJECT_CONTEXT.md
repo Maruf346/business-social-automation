@@ -65,7 +65,7 @@ AI-backed intake state and analysis history.
 Key models:
 
 - `IntakeRequest`: canonical latest tattoo request state for a lead/conversation, including vCita booking UID and vCita Matter UID when mapped.
-- `AIAnalysis`: immutable snapshot of every AI analysis response, linked to the triggering message and intake, including summary, AI suggested price, and AI-proposed appointment date/time.
+- `AIAnalysis`: immutable snapshot of every AI analysis response, linked to the triggering message and intake, including summary, AI suggested price, AI-proposed appointment date/time, raw AI response, and debug-only `request_payload`.
 - `ArtistProfile`: admin-managed artists, Telegram user IDs, private chat IDs, Hoss-only approval flag, and optional vCita staff UID mapping.
 - `ExternalArtistOffer`: offer/accept/decline/cancel state for external artists before client contact is released.
 - `HumanDecision`: approval, rejection, assignment, edited reply, hold appointment, keep/release hold, pending hold review, schedule, and artist reply actions.

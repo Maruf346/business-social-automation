@@ -175,6 +175,7 @@ class IntakeStateService:
         message: Message | None,
         response: dict[str, Any],
         endpoint: str = "analyze",
+        request_payload: dict[str, Any] | None = None,
     ) -> AIAnalysis:
         normalized = cls.normalize_ai_response(response)
 
@@ -206,6 +207,7 @@ class IntakeStateService:
             auto_reply_allowed=normalized["auto_reply_allowed"],
             telegram_review_required=normalized["telegram_review_required"],
             raw_response=response if isinstance(response, dict) else {},
+            request_payload=request_payload or {},
         )
 
         review_required = (
