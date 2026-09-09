@@ -294,6 +294,12 @@ Service notes notification update:
 - vCita paid webhooks now notify the client when the backend receives a first paid event. If the paid event finalizes an active pending hold, the client receives the final appointment confirmation instead of a separate generic payment notice.
 - If client notification fails during vCita webhook handling, the webhook still completes and Telegram receives a clear failure message for Hoss/Nina.
 
+
+Outlook subscription update fix:
+
+- `WebhookSubscription` updates now compare against the pre-save row, so Admin panel changes renew or recreate the Microsoft Graph webhook correctly.
+- Expired Outlook subscriptions are recreated on save. Set expiration within Microsoft Graph's supported Outlook subscription lifetime, not weeks ahead.
+
 ## Documentation Maintenance Rule
 
 Whenever implementation changes:
