@@ -9,6 +9,8 @@ from typing import Optional
 
 import requests
 from django.conf import settings
+from django.core.files.base import ContentFile
+from django.core.files.storage import default_storage
 
 from core.exceptions import MediaDownloadError
 from lead.models import MediaFile, Message
@@ -24,13 +26,15 @@ class MediaDownloadResult:
 
 
 class MediaService:
+    IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".heic", ".heif"}
+
     # WhatsApp media download
     @staticmethod
     def download_whatsapp_media(media_id: str, mime_type: str, access_token: str, message: Message,) -> MediaDownloadResult:
         api_version = settings.WHATSAPP.get("API_VERSION", "v22.0")
         headers = {"Authorization": f"Bearer {access_token}"}
 
-        # Get the download URL ───────────
+        # Get the download URL
         try:
             meta_url = f"https://graph.facebook.com/{api_version}/{media_id}"
             resp = requests.get(meta_url, headers=headers, timeout=15)
@@ -46,7 +50,7 @@ class MediaService:
                 f"Failed to retrieve media URL: {exc}"
             ) from exc
 
-        # Download the binary ────────────
+        # Download the binary
         try:
             media_resp = requests.get(download_url, headers=headers, timeout=30)
             media_resp.raise_for_status()
@@ -57,14 +61,17 @@ class MediaService:
                 f"Failed to download media binary: {exc}"
             ) from exc
 
-        # Save to disk ────────────────────
         extension = mimetypes.guess_extension(mime_type) or ".bin"
         filename = f"{uuid.uuid4().hex}{extension}"
         relative_dir = os.path.join("whatsapp", str(message.lead_id))
 
-        return MediaService._save_to_disk(
-            content_bytes=content_bytes, filename=filename, relative_dir=relative_dir, message=message,
-            media_type=mime_type.split("/")[0], mime_type=mime_type,
+        return MediaService._save_to_storage(
+            content_bytes=content_bytes,
+            filename=filename,
+            relative_dir=relative_dir,
+            message=message,
+            media_type=mime_type.split("/", 1)[0],
+            mime_type=mime_type,
             provider_media_id=media_id,
         )
 
@@ -90,10 +97,9 @@ class MediaService:
             raise MediaDownloadError(f"Base64 decode failed: {exc}") from exc
 
         original_name = attachment.get("name", "attachment")
-        mime_type = attachment.get("contentType", "application/octet-stream")
+        mime_type = MediaService._attachment_mime_type(attachment, original_name)
         file_size = attachment.get("size", len(content_bytes))
 
-        # Generate safe filename
         _, ext = os.path.splitext(original_name)
         if not ext:
             ext = mimetypes.guess_extension(mime_type) or ".bin"
@@ -101,37 +107,48 @@ class MediaService:
 
         relative_dir = os.path.join("outlook", str(message.lead_id))
 
-        return MediaService._save_to_disk(
-            content_bytes=content_bytes, filename=filename, relative_dir=relative_dir, message=message,
-            media_type=mime_type.split("/")[0], mime_type=mime_type, file_name=original_name, file_size=file_size,
+        return MediaService._save_to_storage(
+            content_bytes=content_bytes,
+            filename=filename,
+            relative_dir=relative_dir,
+            message=message,
+            media_type=MediaService._media_type_for_attachment(mime_type, original_name),
+            mime_type=mime_type,
+            file_name=original_name,
+            file_size=file_size,
+            provider_media_id=attachment.get("id", ""),
         )
 
-    # save binary to disk + create MediaFile record
     @staticmethod
-    def _save_to_disk( content_bytes: bytes, filename: str, relative_dir: str, message: Message, media_type: str, mime_type: str, file_name: str = "", file_size: int = 0, provider_media_id: str = "",) -> MediaDownloadResult:
-        media_root = settings.MEDIA_ROOT
-        abs_dir = os.path.join(media_root, relative_dir)
-        os.makedirs(abs_dir, exist_ok=True)
-
-        abs_path = os.path.join(abs_dir, filename)
-        try:
-            with open(abs_path, "wb") as f:
-                f.write(content_bytes)
-        except OSError as exc:
-            logger.error("Failed to write media file to %s: %s", abs_path, exc)
-            raise MediaDownloadError(f"File write failed: {exc}") from exc
-
-        # Build public URL
+    def _save_to_storage(
+        content_bytes: bytes,
+        filename: str,
+        relative_dir: str,
+        message: Message,
+        media_type: str,
+        mime_type: str,
+        file_name: str = "",
+        file_size: int = 0,
+        provider_media_id: str = "",
+    ) -> MediaDownloadResult:
         relative_path = os.path.join(relative_dir, filename).replace("\\", "/")
-        base_url = getattr(settings, "MEDIA_BASE_URL", "")
-        public_url = f"{base_url.rstrip('/')}/{relative_path}"
+        try:
+            stored_path = default_storage.save(relative_path, ContentFile(content_bytes))
+        except Exception as exc:
+            logger.error("Failed to save media file to storage path=%s: %s", relative_path, exc)
+            raise MediaDownloadError(f"File save failed: {exc}") from exc
 
-        # Create DB record
+        try:
+            public_url = default_storage.url(stored_path)
+        except Exception:
+            base_url = getattr(settings, "MEDIA_BASE_URL", "")
+            public_url = f"{base_url.rstrip('/')}/{stored_path}"
+
         media_file = MediaFile.objects.create(
             message=message,
             media_type=media_type,
             mime_type=mime_type,
-            file=os.path.join(relative_dir, filename),
+            file=stored_path,
             file_name=file_name or filename,
             file_size=file_size or len(content_bytes),
             download_url=public_url,
@@ -140,15 +157,59 @@ class MediaService:
 
         logger.info(
             "Saved media file id=%s type=%s path=%s for message=%s",
-            media_file.pk, media_type, abs_path, message.pk,
+            media_file.pk,
+            media_type,
+            stored_path,
+            message.pk,
         )
         return MediaDownloadResult(
             media_file=media_file,
             public_url=public_url,
-            file_path=abs_path,
+            file_path=stored_path,
         )
+
+    # Backward-compatible alias for older call sites.
+    _save_to_disk = _save_to_storage
 
     # check if MIME type is an image
     @staticmethod
     def is_image_mime(mime_type: str) -> bool:
         return mime_type.lower().startswith("image/")
+
+    @staticmethod
+    def is_image_attachment(attachment: dict, media_file: MediaFile | None = None) -> bool:
+        if media_file and media_file.media_type == "image":
+            return True
+
+        name = attachment.get("name", "")
+        mime_type = MediaService._attachment_mime_type(attachment, name)
+        if MediaService.is_image_mime(mime_type):
+            return True
+
+        _, ext = os.path.splitext(name.lower())
+        return ext in MediaService.IMAGE_EXTENSIONS
+
+    @staticmethod
+    def _attachment_mime_type(attachment: dict, file_name: str = "") -> str:
+        mime_type = (
+            attachment.get("contentType")
+            or attachment.get("content_type")
+            or attachment.get("@odata.mediaContentType")
+            or ""
+        )
+        if mime_type:
+            return mime_type
+
+        guessed, _ = mimetypes.guess_type(file_name)
+        return guessed or "application/octet-stream"
+
+    @staticmethod
+    def _media_type_for_attachment(mime_type: str, file_name: str = "") -> str:
+        if MediaService.is_image_mime(mime_type):
+            return "image"
+
+        _, ext = os.path.splitext(file_name.lower())
+        if ext in MediaService.IMAGE_EXTENSIONS:
+            return "image"
+
+        return mime_type.split("/", 1)[0] if "/" in mime_type else "document"

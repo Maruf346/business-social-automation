@@ -328,6 +328,8 @@ See `AI_INTEGRATION_CONTRACT.md` for the full endpoint payload and response cont
 
 Current AI request payload includes `message_source`. Use the active intake/source when calling AI from WhatsApp, Outlook, or management-command summary flows. Current message images go in `new_image_urls`; previous incoming image URLs are available to AI through `existing_db_state.intake.previous_image_urls`.
 
+Outlook image handling update on 2026-09-10: Outlook tasks fetch attachments even when Microsoft Graph reports `hasAttachments=false`, classify images using MIME type plus filename fallback, and save media via Django storage. In production with S3 enabled, AI image URLs should be public S3-backed URLs. Use `AIAnalysis.request_payload` to verify current images in `new_image_urls` and older images in `existing_db_state.intake.previous_image_urls`.
+
 Current AI response fields persisted by the backend include `client_name`, `preferred_artist`, `appointment_type`, `tattoo_project_type`, `auto_reply_allowed`, and `telegram_review_required` in addition to the earlier tattoo details, risk, summary, price, date/time, and draft reply fields.
 
 

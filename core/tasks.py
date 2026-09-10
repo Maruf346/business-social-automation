@@ -342,21 +342,22 @@ def step1_fetch_and_save_email(self, outlook_account_id: int, message_id: str, r
     )
     MessageService.update_lead_last_message(lead, incoming)
 
-    # Download attachments
+    # Download attachments. Outlook can mark inline/body images differently from paperclip
+    # attachments, so fetch the attachment collection even when hasAttachments is false.
     image_urls: list[str] = []
-    if has_attachments:
-        try:
-            attachments = outlook_svc.fetch_attachments(user_id, message_id)
-            for att in attachments:
-                try:
-                    result = MediaService.save_outlook_attachment(attachment=att, message=incoming)
-                    if result and MediaService.is_image_mime(att.get("contentType", "")):
-                        image_urls.append(result.public_url)
-                except MediaDownloadError:
-                    logger.exception("Failed to save attachment '%s' - skipping", att.get("name", "unknown"))
-        except OutlookAPIError:
-            logger.exception("Failed to fetch attachments for msg_id=%s - continuing without", message_id)
-
+    try:
+        attachments = outlook_svc.fetch_attachments(user_id, message_id)
+        if attachments and not has_attachments:
+            logger.info("Email msg_id=%s returned attachments even though hasAttachments=false", message_id)
+        for att in attachments:
+            try:
+                result = MediaService.save_outlook_attachment(attachment=att, message=incoming)
+                if result and MediaService.is_image_attachment(att, media_file=result.media_file):
+                    image_urls.append(result.public_url)
+            except MediaDownloadError:
+                logger.exception("Failed to save attachment '%s' - skipping", att.get("name", "unknown"))
+    except OutlookAPIError:
+        logger.exception("Failed to fetch attachments for msg_id=%s - continuing without", message_id)
     return {
         "pipeline_status": "continue",
         "lead_id": lead.pk,
