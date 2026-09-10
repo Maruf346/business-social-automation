@@ -335,6 +335,8 @@ S3 media access note: with `AWS_QUERYSTRING_AUTH=False`, the S3 bucket/prefix mu
 Current AI response fields persisted by the backend include `client_name`, `preferred_artist`, `appointment_type`, `tattoo_project_type`, `auto_reply_allowed`, and `telegram_review_required` in addition to the earlier tattoo details, risk, summary, price, date/time, and draft reply fields.
 
 
+Outlook inbound email text is normalized before persistence: HTML is converted to text, then common quoted-reply markers such as `On ... wrote:`, `From:`, `Sent:`, `To:`, `Subject:`, and original-message separators are pruned. `Message.raw_payload` still stores the full Graph payload for debugging.
+
 Outlook subscription renewal fix:
 
 - `WebhookSubscription` saves now capture the previous row in `pre_save` so changes to notification URL, resource, client state, change type, or expiration date are correctly synced to Microsoft Graph in `post_save`.

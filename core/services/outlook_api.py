@@ -16,6 +16,15 @@ logger = logging.getLogger(__name__)
 
 _HTML_TAG_RE = re.compile(r"<[^>]+>")
 _RESOURCE_USER_RE = re.compile(r"Users/([^/]+)/", re.IGNORECASE)
+_REPLY_QUOTE_MARKERS = (
+    re.compile(r"^On .+ wrote:$", re.IGNORECASE),
+    re.compile(r"^From:\s+", re.IGNORECASE),
+    re.compile(r"^Sent:\s+", re.IGNORECASE),
+    re.compile(r"^To:\s+", re.IGNORECASE),
+    re.compile(r"^Subject:\s+", re.IGNORECASE),
+    re.compile(r"^-+\s*Original Message\s*-+$", re.IGNORECASE),
+    re.compile(r"^_{5,}$"),
+)
 
 
 class OutlookAPIService:
@@ -94,6 +103,22 @@ class OutlookAPIService:
         lines = [line.strip() for line in text.splitlines()]
         text = "\n".join(line for line in lines if line)
         return text.strip()
+
+    @staticmethod
+    def prune_reply_quote(text: str) -> str:
+        if not text:
+            return ""
+
+        lines = text.splitlines()
+        kept: list[str] = []
+        for line in lines:
+            stripped = line.strip()
+            if kept and any(marker.match(stripped) for marker in _REPLY_QUOTE_MARKERS):
+                break
+            kept.append(line)
+
+        pruned = "\n".join(line.rstrip() for line in kept).strip()
+        return pruned or text.strip()
 
     # wrap plain text in HTML for email reply
     @staticmethod

@@ -328,6 +328,10 @@ def step1_fetch_and_save_email(self, outlook_account_id: int, message_id: str, r
     else:
         body_text = body_content
         html_content = ""
+    original_body_text = body_text
+    body_text = OutlookAPIService.prune_reply_quote(body_text)
+    if original_body_text and body_text != original_body_text:
+        logger.info("Pruned quoted Outlook thread text for msg_id=%s", message_id)
 
     # DB Operations
     lead = MessageService.get_or_create_email_lead(email=sender_email, name=sender_name)

@@ -81,7 +81,8 @@ class TelegramWorkflowService:
             logger.warning("Cannot send artist update for intake=%s without assigned artist chat.", intake.pk)
             return None
 
-        message = self._format_artist_update_text(intake, text, media_items or [])
+        include_summary = purpose == TelegramMessagePurpose.ARTIST_ASSIGNMENT
+        message = self._format_artist_update_text(intake, text, media_items or [], include_summary=include_summary)
         response = self.telegram.send_message(
             chat_id=intake.assigned_artist.telegram_chat_id,
             text=message,
@@ -1779,6 +1780,7 @@ class TelegramWorkflowService:
         intake: IntakeRequest,
         text: str,
         media_items: list[dict[str, Any]],
+        include_summary: bool = False,
     ) -> str:
         media_note = ""
         if media_items:
@@ -1819,13 +1821,12 @@ class TelegramWorkflowService:
             detail_lines.append(f"Suggested schedule: {escape(intake.appointment_date)} at {escape(intake.appointment_time)}")
 
         summary_section = ""
-        if intake.latest_summary:
+        if include_summary and intake.latest_summary:
             summary_section = f"\n\n<b>Summary</b>\n{escape(intake.latest_summary)}"
 
         return (
             f"<b>Request #{intake.pk}</b>\n"
-            f"Client: {escape(str(intake.lead))}\n"
-            f"{f'Client name: {escape(intake.client_name)}' + chr(10) if intake.client_name else ''}"
+            f"{chr(10).join(self._format_client_identity_lines(intake))}\n"
             f"Source: {escape(intake.source)}\n"
             f"{chr(10).join(detail_lines)}"
             f"{summary_section}\n\n"
