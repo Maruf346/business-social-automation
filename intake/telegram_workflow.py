@@ -1830,7 +1830,7 @@ class TelegramWorkflowService:
             f"Source: {escape(intake.source)}\n"
             f"{chr(10).join(detail_lines)}"
             f"{summary_section}\n\n"
-            f"{escape(text or '')}"
+            f"<b>New message</b>\n{escape(text or '')}"
             f"{media_note}\n\n"
             "Reply to this message to answer the client, or use:\n"
             f"<code>/reply {intake.pk} your message</code>"
