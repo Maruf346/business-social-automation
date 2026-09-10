@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from typing import Any
 
 from django.db import transaction
@@ -61,7 +62,7 @@ class VcitaWebhook(APIView):
             body=raw_body,
             ip_address=self._get_client_ip(request),
             event_type=self._extract_value(payload, "event_type", "event", "type", "action"),
-            entity=self._extract_value(payload, "entity", "object", "resource", "model"),
+            entity=self._extract_value(payload, "entity", "entity_name", "object", "resource", "model"),
             external_id=self._extract_external_id(payload),
             processing_error=parse_error,
         )
@@ -115,17 +116,27 @@ class VcitaWebhook(APIView):
             )
             return
 
+        if not intakes and cls._should_retry_unmatched(normalized_event):
+            intakes, reference_uid, financial_record = cls._retry_resolve_intakes(event, normalized_event)
+
         if not intakes:
             cls._mark_event_unmatched(
                 event,
                 "Could not match vCita webhook to an intake. Stored payload for review.",
             )
-            cls._notify_telegram(
-                "vCita webhook could not be matched to any request. "
-                f"Event #{event.pk}; reference: {reference_uid or event.external_id or 'none'}. Please review in the Admin panel."
-            )
+            if cls._should_notify_unmatched(normalized_event):
+                cls._notify_telegram(
+                    "vCita webhook could not be matched to any request. "
+                    f"Event #{event.pk}; reference: {reference_uid or event.external_id or 'none'}. Please review in the Admin panel."
+                )
+            else:
+                logger.info(
+                    "Stored unmatched vCita webhook without Telegram alert: event_id=%s normalized_event=%s reference=%s",
+                    event.pk,
+                    normalized_event,
+                    reference_uid or event.external_id or "none",
+                )
             return
-
         if len(intakes) > 1:
             ids = ", ".join(str(item.pk) for item in intakes)
             cls._mark_event_unmatched(event, f"Webhook matched multiple requests: {ids}")
@@ -208,6 +219,40 @@ class VcitaWebhook(APIView):
             return intakes, financial_uid or matter_uid, financial_record
 
         return [], financial_uid or event.external_id, financial_record
+
+    @classmethod
+    def _retry_resolve_intakes(
+        cls,
+        event: VcitaWebhookEvent,
+        normalized_event: str,
+    ) -> tuple[list[IntakeRequest], str, VcitaFinancialRecord | None]:
+        reference_uid = ""
+        financial_record = None
+        for _ in range(3):
+            time.sleep(0.75)
+            intakes, reference_uid, financial_record = cls._resolve_intakes(event, normalized_event)
+            if intakes:
+                return intakes, reference_uid, financial_record
+        return [], reference_uid, financial_record
+
+    @staticmethod
+    def _should_retry_unmatched(normalized_event: str) -> bool:
+        return normalized_event in {
+            "appointment/create",
+            "appointment/created",
+            "appointment/scheduled",
+            "meeting/create",
+            "meeting/created",
+            "meeting/scheduled",
+            "booking/create",
+            "booking/created",
+            "booking/scheduled",
+        }
+
+    @staticmethod
+    def _should_notify_unmatched(normalized_event: str) -> bool:
+        entity = normalized_event.split("/", 1)[0]
+        return entity in {"payment", "invoice", "deposit"}
 
     @classmethod
     def _apply_event_to_intake(
@@ -523,14 +568,14 @@ class VcitaWebhook(APIView):
 
     @classmethod
     def _extract_external_id(cls, payload: dict) -> str:
-        for key in ("id", "uid", "external_id", "resource_id"):
+        for key in ("id", "uid", "external_id", "resource_id", "appointment_id", "appointment_uid", "booking_id", "booking_uid", "meeting_id", "meeting_uid", "payment_id", "payment_uid", "invoice_id", "invoice_uid", "deposit_id", "deposit_uid"):
             value = payload.get(key)
             if value is not None:
                 return str(value)
 
         data: Any = payload.get("data")
         if isinstance(data, dict):
-            for key in ("id", "uid", "external_id", "resource_id"):
+            for key in ("id", "uid", "external_id", "resource_id", "appointment_id", "appointment_uid", "booking_id", "booking_uid", "meeting_id", "meeting_uid", "payment_id", "payment_uid", "invoice_id", "invoice_uid", "deposit_id", "deposit_uid"):
                 value = data.get(key)
                 if value is not None:
                     return str(value)

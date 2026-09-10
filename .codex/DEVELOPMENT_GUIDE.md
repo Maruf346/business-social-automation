@@ -337,6 +337,8 @@ Current AI response fields persisted by the backend include `client_name`, `pref
 
 Outlook inbound email text is normalized before persistence: HTML is converted to text, then common quoted-reply markers such as `On ... wrote:`, `From:`, `Sent:`, `To:`, `Subject:`, and original-message separators are pruned. `Message.raw_payload` still stores the full Graph payload for debugging.
 
+vCita webhook matching note: appointment webhooks can race the Telegram `/schedule` command because vCita may post `appointment/create` and `appointment/scheduled` before the backend has saved `vcita_booking_uid`. The handler retries briefly, extracts `entity_name` and `appointment_id`, and suppresses Telegram noise for unmatched appointment events. Financial webhook mismatches still alert Telegram.
+
 Outlook subscription renewal fix:
 
 - `WebhookSubscription` saves now capture the previous row in `pre_save` so changes to notification URL, resource, client state, change type, or expiration date are correctly synced to Microsoft Graph in `post_save`.
