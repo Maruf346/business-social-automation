@@ -87,6 +87,8 @@ class VcitaSchedulingService:
                 start_local=start_local,
             )
 
+        release_previous_google_only_schedule = self._has_google_only_confirmed_schedule(intake)
+
         if not account.business_uid:
             raise VcitaSchedulingError("vCita business UID is missing. Sync user info or add it in the Admin panel.")
 
@@ -200,6 +202,12 @@ class VcitaSchedulingService:
         else:
             release_warnings = self._release_pending_hold_after_final_booking(intake, google_calendar)
         google_warnings = [*google_sync.warnings, *release_warnings]
+        if release_previous_google_only_schedule:
+            previous_schedule_release = google_calendar.release_confirmed_artist_events_except(
+                intake,
+                keep_artist=intake.assigned_artist,
+            )
+            google_warnings.extend(previous_schedule_release.warnings)
 
         return VcitaScheduleResult(
             intake=intake,
@@ -441,6 +449,17 @@ class VcitaSchedulingService:
             ]
         )
         return release_result.synced_event_ids
+
+    @staticmethod
+    def _has_google_only_confirmed_schedule(intake: IntakeRequest) -> bool:
+        if intake.vcita_booking_uid:
+            return False
+        if intake.scheduled_service and (
+            intake.scheduled_service.schedule_provider == VcitaScheduleProvider.GOOGLE_ONLY
+            or intake.scheduled_service.code.upper() in {"TA", "TC"}
+        ):
+            return True
+        return (intake.scheduled_service_code or "").upper() in {"TA", "TC"}
 
     @staticmethod
     def _is_external_artist(intake: IntakeRequest) -> bool:

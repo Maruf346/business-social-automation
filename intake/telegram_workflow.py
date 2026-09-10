@@ -663,6 +663,7 @@ class TelegramWorkflowService:
         reassign_card: bool = False,
     ) -> dict[str, Any]:
         scheduled_reassign = self._prepare_scheduled_reassign(intake, artist)
+        scheduled_reassign_message = scheduled_reassign[1] if scheduled_reassign else ""
         if scheduled_reassign:
             ok, message = scheduled_reassign
             if not ok:
@@ -671,7 +672,6 @@ class TelegramWorkflowService:
                 elif refresh_review_card:
                     self._refresh_review_card(intake, chat_id, message_id, message)
                 self.telegram.answer_callback_query(callback_id, message[:200], show_alert=True)
-                self.telegram.send_message(chat_id=chat_id, text=message)
                 return {"ok": False, "reason": "scheduled_reassign_blocked", "intake_id": intake.pk, "artist_id": artist.pk}
 
         if not artist.can_approve:
@@ -720,11 +720,11 @@ class TelegramWorkflowService:
                 purpose=TelegramMessagePurpose.ARTIST_ASSIGNMENT,
             )
             if refresh_review_card:
-                self._refresh_review_card(intake, chat_id, message_id, f"Status: Assigned to {artist.name} by {actor.name}.")
+                self._refresh_review_card(intake, chat_id, message_id, f"Status: {scheduled_reassign_message or f'Assigned to {artist.name} by {actor.name}.'}")
             elif reassign_card:
-                self._mark_short_action_card_handled(chat_id, message_id, f"Request #{intake.pk} reassigned to {artist.name}.")
+                self._mark_short_action_card_handled(chat_id, message_id, scheduled_reassign_message or f"Request #{intake.pk} reassigned to {artist.name}.")
             self.telegram.answer_callback_query(callback_id, f"Assigned to {artist.name}.")
-            self.telegram.send_message(chat_id=chat_id, text=f"Request #{intake.pk} assigned to {escape(artist.name)}.")
+            self.telegram.send_message(chat_id=chat_id, text=scheduled_reassign_message or f"Request #{intake.pk} assigned to {escape(artist.name)}.")
         else:
             if refresh_review_card:
                 self._refresh_review_card(intake, chat_id, message_id, f"Status: Assigned to {artist.name}, but /whoami is still needed.")
@@ -837,10 +837,7 @@ class TelegramWorkflowService:
 
         if provider == VcitaScheduleProvider.GOOGLE_ONLY:
             if new_artist.can_approve:
-                return False, (
-                    f"Request #{intake.pk} is already scheduled for an external artist. "
-                    "Please reschedule it with a Hoss/Nina service before assigning Hoss or Nina."
-                )
+                return True, f"Request #{intake.pk} reassigned to {new_artist.name}. Please reschedule it with a Hoss/Nina service."
             try:
                 start_local = self._scheduled_start(intake)
                 GoogleCalendarService().preflight_artist_schedule(
