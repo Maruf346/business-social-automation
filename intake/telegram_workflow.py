@@ -23,6 +23,7 @@ from intake.models import (
     ScheduleStatus,
     TelegramMessageLink,
     TelegramMessagePurpose,
+    IntakeSource,
 )
 from lead.choices import SEND_BY
 from intake.outbound import ClientOutboundService
@@ -1700,6 +1701,22 @@ class TelegramWorkflowService:
 
         return {"inline_keyboard": keyboard}
 
+    def _format_client_identity_lines(self, intake: IntakeRequest) -> list[str]:
+        lead = intake.lead
+        client_name = intake.client_name or lead.name or "Unknown"
+        lines = [f"Client name: {escape(client_name)}"]
+
+        source = (intake.source or "").lower()
+        if source == IntakeSource.OUTLOOK and lead.email:
+            lines.append(f"Client email: {escape(lead.email)}")
+        elif source == IntakeSource.WHATSAPP and lead.phone_number:
+            lines.append(f"Client phone: {escape(lead.phone_number)}")
+        elif lead.email:
+            lines.append(f"Client email: {escape(lead.email)}")
+        elif lead.phone_number:
+            lines.append(f"Client phone: {escape(lead.phone_number)}")
+
+        return lines
 
     def _format_review_text(self, intake: IntakeRequest, status_text: str = "") -> str:
         price_lines = [
@@ -1737,9 +1754,7 @@ class TelegramWorkflowService:
         if status_text:
             status_section = f"\n<b>{escape(status_text)}</b>\n"
 
-        context_lines = []
-        if intake.client_name:
-            context_lines.append(f"Client name: {escape(intake.client_name)}")
+        context_lines = self._format_client_identity_lines(intake)
         appointment_type = self._format_appointment_type(intake.appointment_type)
         if appointment_type:
             context_lines.append(f"Preferred Appointment Type: {escape(appointment_type)}")
@@ -1751,12 +1766,10 @@ class TelegramWorkflowService:
 
         return (
             f"<b>High-risk request #{intake.pk}</b>\n"
-            f"Client: {escape(str(intake.lead))}\n"
             f"Source: {escape(intake.source)}\n"
             f"{context_section}"
             f"Idea: {escape(intake.tattoo_idea or 'Unclear')}\n"
             f"Artist suggestion: {escape(intake.suggested_artist or 'Unclear')}\n"
-            f"Missing: {escape(', '.join(intake.missing_information) or 'None')}\n\n"
             f"{chr(10).join(price_lines)}\n"
             f"{summary_section}"
             f"{status_section}\n"

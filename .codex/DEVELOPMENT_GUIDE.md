@@ -330,6 +330,8 @@ Current AI request payload includes `message_source`. Use the active intake/sour
 
 Outlook image handling update on 2026-09-10: Outlook tasks fetch attachments even when Microsoft Graph reports `hasAttachments=false`, classify images using MIME type plus filename fallback, and save media via Django storage. In production with S3 enabled, AI image URLs should be public S3-backed URLs. Use `AIAnalysis.request_payload` to verify current images in `new_image_urls` and older images in `existing_db_state.intake.previous_image_urls`.
 
+S3 media access note: with `AWS_QUERYSTRING_AUTH=False`, the S3 bucket/prefix must allow public `s3:GetObject` reads for uploaded media, for example `arn:aws:s3:::tattoo-hysteria-media/media/*`. Otherwise S3 returns AccessDenied even though the backend saved the file correctly.
+
 Current AI response fields persisted by the backend include `client_name`, `preferred_artist`, `appointment_type`, `tattoo_project_type`, `auto_reply_allowed`, and `telegram_review_required` in addition to the earlier tattoo details, risk, summary, price, date/time, and draft reply fields.
 
 
