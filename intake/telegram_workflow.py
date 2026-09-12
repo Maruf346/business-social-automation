@@ -1183,9 +1183,10 @@ class TelegramWorkflowService:
         confirmation = f"Request #{intake.pk} price updated.\nPrice: {escape(price)}"
         if note:
             confirmation = f"{confirmation}\nNote: {escape(note)}"
-        self.telegram.send_message(chat_id=message.get("chat", {}).get("id"), text=confirmation)
+        chat_id = message.get("chat", {}).get("id")
+        self._refresh_latest_review_card(intake, f"Status: Price updated by {actor.name}.")
+        self.telegram.send_message(chat_id=chat_id, text=confirmation)
         return {"ok": True, "action": "price_updated", "intake_id": intake.pk}
-
     def _hold_intake(
         self,
         intake: IntakeRequest,
@@ -1677,6 +1678,25 @@ class TelegramWorkflowService:
             return None
         return {"inline_keyboard": keyboard}
 
+    def _refresh_latest_review_card(self, intake: IntakeRequest, status_text: str = "") -> None:
+        links = list(
+            TelegramMessageLink.objects.filter(
+                intake=intake,
+                purpose=TelegramMessagePurpose.GROUP_REVIEW,
+                is_active=True,
+            ).order_by("-created_at")
+        )
+        if not links:
+            logger.info("No Telegram review card link found to refresh for intake=%s", intake.pk)
+            return
+
+        for link in links:
+            self._refresh_review_card(
+                intake=intake,
+                chat_id=link.telegram_chat_id,
+                message_id=link.telegram_message_id,
+                status_text=status_text,
+            )
     def _refresh_review_card(
         self,
         intake: IntakeRequest,
