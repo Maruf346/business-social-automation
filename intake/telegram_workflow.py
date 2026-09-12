@@ -1186,6 +1186,78 @@ class TelegramWorkflowService:
         self.telegram.send_message(chat_id=message.get("chat", {}).get("id"), text=confirmation)
         return {"ok": True, "action": "price_updated", "intake_id": intake.pk}
 
+    def _hold_intake(
+        self,
+        intake: IntakeRequest,
+        actor: ArtistProfile,
+        callback_id: str | None,
+        chat_id: int | None,
+        message_id: int | None,
+        raw_update: dict[str, Any],
+        service_code: str = "",
+        appointment_date: str | None = None,
+        appointment_time: str | None = None,
+    ) -> dict[str, Any]:
+        if not service_code:
+            message = VcitaSchedulingService.service_code_help()
+            if callback_id:
+                self.telegram.answer_callback_query(callback_id, "Please select a service code first.", show_alert=True)
+            self.telegram.send_message(
+                chat_id=chat_id,
+                text=f"Request #{intake.pk}: {escape(message)}",
+            )
+            return {"ok": False, "reason": "missing_service_code", "intake_id": intake.pk}
+        if not intake.assigned_artist_id:
+            message = "Please assign an artist first, then hold this request."
+            if callback_id:
+                self.telegram.answer_callback_query(callback_id, message, show_alert=True)
+            self.telegram.send_message(
+                chat_id=chat_id,
+                text=f"Request #{intake.pk}: {message}",
+            )
+            return {"ok": False, "reason": "missing_artist_assignment", "intake_id": intake.pk}
+
+        try:
+            result = VcitaSchedulingService().hold_intake(
+                intake=intake,
+                appointment_date=appointment_date,
+                appointment_time=appointment_time,
+                service_code=service_code,
+            )
+        except VcitaSchedulingError as exc:
+            if callback_id:
+                self.telegram.answer_callback_query(callback_id, str(exc)[:200], show_alert=True)
+            self.telegram.send_message(
+                chat_id=chat_id,
+                text=f"Request #{intake.pk}: could not create pending hold.\nReason: {escape(str(exc))}",
+            )
+            return {"ok": False, "reason": "hold_failed", "intake_id": intake.pk}
+
+        hold_note = (
+            f"Held {result.service.code} for {result.requested_date} {result.requested_time}. "
+            f"Expires: {timezone.localtime(result.expires_at).strftime('%Y-%m-%d %H:%M')}"
+        )
+        hold_note += self._format_google_warning_note(result.google_sync_warnings)
+        HumanDecision.objects.create(
+            intake=intake,
+            actor=actor,
+            action=HumanDecisionAction.HOLD_APPOINTMENT,
+            note=hold_note,
+            telegram_chat_id=chat_id,
+            telegram_message_id=message_id,
+            telegram_callback_id=callback_id or "",
+            raw_update=raw_update,
+        )
+        if callback_id:
+            self.telegram.answer_callback_query(callback_id, "Pending hold created.")
+        self.telegram.send_message(chat_id=chat_id, text=self._format_hold_group_confirmation(result))
+        return {
+            "ok": True,
+            "action": "hold",
+            "intake_id": intake.pk,
+            "expires_at": result.expires_at.isoformat(),
+        }
+
     def _schedule_intake(
         self,
         intake: IntakeRequest,

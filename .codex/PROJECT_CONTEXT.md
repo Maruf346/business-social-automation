@@ -254,6 +254,7 @@ AI contract update on 2026-09-09:
 - A scheduled TA/TC Google-only external appointment can be reassigned to Hoss/Nina. The old external artist Google Calendar event is kept until Hoss/Nina successfully reschedules the request with a vCita-backed service, then the old external artist event is released.
 - Outlook inbound replies are pruned before saving/routing so quoted email thread history is not sent as the latest client message to AI or Telegram artist updates.
 - vCita appointment webhooks may arrive before `/schedule` finishes saving the returned booking UID. The webhook handler retries short-lived appointment matches and stores unmatched appointment webhooks quietly; unmatched payment/invoice/deposit webhooks still notify Telegram because they may need action.
+- Telegram `/hold` routes through `_hold_intake`, which records the human decision and returns friendly scheduling errors instead of letting vCita/Google validation failures crash the webhook.
 - `client_name`, `preferred_artist`, `appointment_type`, `tattoo_project_type`, `auto_reply_allowed`, and `telegram_review_required` are persisted on both `IntakeRequest` and `AIAnalysis`.
 - Telegram review/artist cards show client name when available and appointment type as `Preferred Appointment Type: Online` or `Preferred Appointment Type: Studio Visit`.
 - Telegram review is forced when AI returns `telegram_review_required=true` or `auto_reply_allowed=false`; low-risk auto-reply requires both `risk_level=low` and `auto_reply_allowed=true`.
