@@ -290,7 +290,7 @@ Artist assignment rules:
 - Assignment applies to the active `IntakeRequest`, not permanently to the whole lead.
 - After assignment, future client messages for that intake route to the assigned artist's private Telegram chat.
 - Assigned artist replies are sent automatically to the client through the original channel.
-- Successful pending hold creation notifies the shared Telegram group and assigned artist privately. Successful scheduling notifies the shared Telegram group, the assigned artist privately, and the client through the original channel. Hoss/Nina services check Google Calendar, create/update vCita, then sync confirmed calendar events; TA/TC external artist services check and sync only the assigned artist Google Calendar.
+- Successful pending hold creation notifies the shared Telegram group, assigned artist privately, and the client through the original channel with the selected service notes. Successful scheduling notifies the shared Telegram group, the assigned artist privately, and the client through the original channel. Hoss/Nina services check Google Calendar, create/update vCita, then sync confirmed calendar events; TA/TC external artist services check and sync only the assigned artist Google Calendar.
 - Artist private replies should support text and media/files.
 - Current implementation supports Telegram text/photo/document private replies. WhatsApp receives media through Meta link sends; Outlook receives media as links in the email reply.
 

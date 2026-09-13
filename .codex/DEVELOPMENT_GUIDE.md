@@ -227,7 +227,7 @@ Current behavior:
 - Payment/cancel/reschedule webhook events first match by booking/appointment/meeting ID against `IntakeRequest.vcita_booking_uid`.
 - Financial webhooks can also match by `matter_uid` or by invoice/payment/deposit UID. If vCita sends only a financial UID, the backend fetches the full vCita object and reads its `matter_uid`.
 - `VcitaFinancialRecord` stores invoice, deposit, and payment IDs, status, amount, currency, raw payload, and the matched intake/lead.
-- Service notes are client-facing: VcitaService.notes is appended to appointment scheduled/rescheduled notifications sent to the client.
+- Service notes are client-facing: VcitaService.notes is appended to appointment scheduled/rescheduled notifications and pending hold notices sent to the client.
 - Paid/recorded payment webhooks auto-finalize a pending hold only when exactly one request is matched. If the request is already scheduled, the backend reports that no duplicate booking was created. If final vCita booking fails, the pending hold remains active and Telegram is notified.
 - On the first paid webhook, the backend sends a client payment confirmation unless that webhook finalizes a pending hold; finalized holds send the client the appointment confirmation with service notes.
 - Unknown or unmatched vCita webhook payloads are stored with `unmatched` status for Admin panel review without Telegram noise. Ambiguous multiple-match or failed API lookup cases still notify Telegram because they need manual action.
@@ -244,7 +244,7 @@ Scheduling:
 - Hoss schedules manually with `/schedule REQUEST_ID SERVICE_CODE YYYY-MM-DD HH:MM`, for example `/schedule 12 OCH 2026-09-04 14:30`.
 - Holding or scheduling requires the intake to be assigned to an artist first.
 - If an older card still sends a Schedule callback, Telegram shows the available service codes and asks Hoss to run the full `/schedule` command. If scheduling is attempted before assignment, Telegram tells Hoss to assign an artist first.
-- Successful hold creation stores pending hold service/date/time/expiry state, creates/updates a Pending Appointments Google Calendar event, marks payment as pending, notifies the group, and notifies the assigned artist privately.
+- Successful hold creation stores pending hold service/date/time/expiry state, creates/updates a Pending Appointments Google Calendar event, marks payment as pending, notifies the group, notifies the assigned artist privately, and sends the client a temporary reservation notice with the selected service notes.
 - Successful scheduling uses the selected `VcitaService` schedule provider. Hoss/Nina services create/update vCita bookings, pass `matter_uid` when available, store `vcita_matter_uid`/`vcita_booking_uid`, and sync Google Calendar after vCita succeeds. TA/TC external artist services skip vCita and sync only the assigned artist Google Calendar. Both paths notify the group, client, and assigned artist.
 - If a final schedule is created from a pending hold, the pending hold is ignored during conflict checking for that same request. The pending hold is released only after final vCita booking and confirmed Google Calendar sync succeed. If final booking fails, the pending hold remains active and Hoss/Nina are notified.
 - vCita client creation sends a flat payload with explicit `first_name` and `last_name`; do not wrap it in `{"client": ...}` because vCita rejects that shape as a blank first name. When the lead only has email/phone, fallback names are generated as `Tattoo Lead REQUEST_ID`.

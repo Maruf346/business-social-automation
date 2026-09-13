@@ -1252,11 +1252,22 @@ class TelegramWorkflowService:
         if callback_id:
             self.telegram.answer_callback_query(callback_id, "Pending hold created.")
         self.telegram.send_message(chat_id=chat_id, text=self._format_hold_group_confirmation(result))
+
+        client_notice = self._format_client_hold_notice(result)
+        client_sent = self._send_client_reply_or_notify(
+            intake=result.intake,
+            text=client_notice,
+            chat_id=chat_id,
+            action_type=OutboundActionType.SCHEDULE_NOTIFICATION,
+            actor=actor,
+            send_by=SEND_BY.AGENT,
+        )
         return {
             "ok": True,
             "action": "hold",
             "intake_id": intake.pk,
             "expires_at": result.expires_at.isoformat(),
+            "client_notified": client_sent,
         }
 
     def _schedule_intake(
@@ -2087,6 +2098,21 @@ class TelegramWorkflowService:
             f"Expires: {escape(timezone.localtime(result.expires_at).strftime('%Y-%m-%d %H:%M'))}\n"
             "Waiting for vCita payment/final confirmation." + TelegramWorkflowService._format_google_warning_text(result.google_sync_warnings)
         )
+
+    @staticmethod
+    def _format_client_hold_notice(result: VcitaHoldResult) -> str:
+        lines = [
+            (
+                f"We have temporarily reserved {result.requested_date} at {result.requested_time} "
+                f"for your {result.service.name} appointment."
+            ),
+            "This slot is pending payment/final confirmation, so the appointment is not final yet.",
+        ]
+        service_note = (result.service.notes or "").strip()
+        if service_note:
+            lines.extend(["", service_note])
+        lines.extend(["", "Once confirmed, we will send your final appointment confirmation."])
+        return "\n".join(lines)
 
     @staticmethod
     def _format_schedule_group_confirmation(result: VcitaScheduleResult) -> str:
