@@ -1736,6 +1736,16 @@ class TelegramWorkflowService:
         ).exists()
 
     @staticmethod
+    def _ai_reply_draft_hidden(intake: IntakeRequest) -> bool:
+        return HumanDecision.objects.filter(
+            intake=intake,
+            action__in=[
+                HumanDecisionAction.APPROVE_AI_REPLY,
+                HumanDecisionAction.REJECT,
+            ],
+        ).exists()
+
+    @staticmethod
     def _assignment_locked(intake: IntakeRequest) -> bool:
         if intake.assigned_artist_id:
             return True
@@ -1854,6 +1864,10 @@ class TelegramWorkflowService:
             context_lines.append(f"Project type: {escape(intake.tattoo_project_type)}")
         context_section = f"{chr(10).join(context_lines)}\n" if context_lines else ""
 
+        draft_section = ""
+        if not self._ai_reply_draft_hidden(intake):
+            draft_section = f"\n<b>Draft reply</b>\n<pre>{escape(intake.latest_draft_reply or '')}</pre>"
+
         return (
             f"<b>High-risk request #{intake.pk}</b>\n"
             f"Source: {escape(intake.source)}\n"
@@ -1862,10 +1876,9 @@ class TelegramWorkflowService:
             f"Artist suggestion: {escape(intake.suggested_artist or 'Unclear')}\n"
             f"{chr(10).join(price_lines)}\n"
             f"{summary_section}"
-            f"{status_section}\n"
-            f"<b>Draft reply</b>\n<pre>{escape(intake.latest_draft_reply or '')}</pre>"
+            f"{status_section}"
+            f"{draft_section}"
         )
-
 
     def _format_artist_update_text(
         self,
