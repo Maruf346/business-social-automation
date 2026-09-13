@@ -255,6 +255,7 @@ AI contract update on 2026-09-09:
 - Outlook inbound replies are pruned before saving/routing so quoted email thread history is not sent as the latest client message to AI or Telegram artist updates.
 - vCita appointment webhooks may arrive before `/schedule` finishes saving the returned booking UID. The webhook handler retries short-lived appointment matches and stores all unmatched vCita webhooks quietly for Admin panel review, because Hoss has existing vCita records that may emit unrelated events.
 - Telegram `/hold` routes through `_hold_intake`, which records the human decision and returns friendly scheduling errors instead of letting vCita/Google validation failures crash the webhook.
+- Google Calendar repeated hold conflict checks use Python standard UTC conversion for Django 6 compatibility; repeating a hold for the same request should not crash when comparing the request own pending event.
 - Telegram `/price` keeps its confirmation message and also refreshes all active stored group review cards for that request so displayed Price/Price note stay current across repeated test cards.
 - Telegram review cards hide the preformatted Draft reply block after the AI reply has been approved or rejected; Edit Reply removes decision buttons but keeps the draft visible so Hoss can copy/reference it.
 - `client_name`, `preferred_artist`, `appointment_type`, `tattoo_project_type`, `auto_reply_allowed`, and `telegram_review_required` are persisted on both `IntakeRequest` and `AIAnalysis`.

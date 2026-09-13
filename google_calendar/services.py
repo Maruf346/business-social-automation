@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone as dt_timezone
 from typing import Any
 
 from django.conf import settings
@@ -470,16 +470,17 @@ class GoogleCalendarService:
             status=GoogleCalendarSyncStatus.SYNCED,
         )
         return {event.calendar_id: event for event in events}
+
     @staticmethod
     def _busy_slots_only_match_event(busy_slots: list[dict[str, str]], event: GoogleCalendarEvent) -> bool:
         if not busy_slots:
             return False
-        event_start = event.start_at.astimezone(timezone.utc)
-        event_end = event.end_at.astimezone(timezone.utc)
+        event_start = event.start_at.astimezone(dt_timezone.utc)
+        event_end = event.end_at.astimezone(dt_timezone.utc)
         for slot in busy_slots:
             try:
-                slot_start = datetime.fromisoformat(str(slot.get("start", "")).replace("Z", "+00:00")).astimezone(timezone.utc)
-                slot_end = datetime.fromisoformat(str(slot.get("end", "")).replace("Z", "+00:00")).astimezone(timezone.utc)
+                slot_start = datetime.fromisoformat(str(slot.get("start", "")).replace("Z", "+00:00")).astimezone(dt_timezone.utc)
+                slot_end = datetime.fromisoformat(str(slot.get("end", "")).replace("Z", "+00:00")).astimezone(dt_timezone.utc)
             except ValueError:
                 return False
             if slot_start != event_start or slot_end != event_end:
