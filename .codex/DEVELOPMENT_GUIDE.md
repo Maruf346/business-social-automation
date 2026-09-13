@@ -230,7 +230,7 @@ Current behavior:
 - Service notes are client-facing: VcitaService.notes is appended to appointment scheduled/rescheduled notifications sent to the client.
 - Paid/recorded payment webhooks auto-finalize a pending hold only when exactly one request is matched. If the request is already scheduled, the backend reports that no duplicate booking was created. If final vCita booking fails, the pending hold remains active and Telegram is notified.
 - On the first paid webhook, the backend sends a client payment confirmation unless that webhook finalizes a pending hold; finalized holds send the client the appointment confirmation with service notes.
-- Unknown, ambiguous, or unmatched vCita webhook payloads are stored with `unmatched` or `failed` status and Telegram asks Hoss/Nina to review the Admin panel.
+- Unknown or unmatched vCita webhook payloads are stored with `unmatched` status for Admin panel review without Telegram noise. Ambiguous multiple-match or failed API lookup cases still notify Telegram because they need manual action.
 
 Scheduling:
 
@@ -337,7 +337,7 @@ Current AI response fields persisted by the backend include `client_name`, `pref
 
 Outlook inbound email text is normalized before persistence: HTML is converted to text, then common quoted-reply markers such as `On ... wrote:`, `From:`, `Sent:`, `To:`, `Subject:`, and original-message separators are pruned. `Message.raw_payload` still stores the full Graph payload for debugging.
 
-vCita webhook matching note: appointment webhooks can race the Telegram `/schedule` command because vCita may post `appointment/create` and `appointment/scheduled` before the backend has saved `vcita_booking_uid`. The handler retries briefly, extracts `entity_name` and `appointment_id`, and suppresses Telegram noise for unmatched appointment events. Financial webhook mismatches still alert Telegram.
+vCita webhook matching note: appointment webhooks can race the Telegram `/schedule` command because vCita may post `appointment/create` and `appointment/scheduled` before the backend has saved `vcita_booking_uid`. The handler retries briefly, extracts `entity_name` and `appointment_id`, and suppresses Telegram noise for all unmatched vCita events. Matched financial events still update the intake and notify Telegram.
 
 Outlook subscription renewal fix:
 

@@ -251,8 +251,9 @@ class VcitaWebhook(APIView):
 
     @staticmethod
     def _should_notify_unmatched(normalized_event: str) -> bool:
-        entity = normalized_event.split("/", 1)[0]
-        return entity in {"payment", "invoice", "deposit"}
+        # Existing vCita records can emit webhooks that do not belong to this automation.
+        # Store unmatched events for Admin panel review without interrupting Hoss/Nina in Telegram.
+        return False
 
     @classmethod
     def _apply_event_to_intake(
