@@ -306,6 +306,7 @@ Service notes notification update:
 
 
 Outlook subscription update fix:
+- Outlook subscriptions are automatically renewed by Celery Beat task `core.renew_outlook_subscriptions`; it checks expiring/failed/pending active Outlook subscriptions and renews or recreates them before Microsoft Graph expiry.
 
 - `WebhookSubscription` updates now compare against the pre-save row, so Admin panel changes renew or recreate the Microsoft Graph webhook correctly.
 - Expired Outlook subscriptions are recreated on save. Set expiration within Microsoft Graph's supported Outlook subscription lifetime, not weeks ahead.

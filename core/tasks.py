@@ -14,6 +14,7 @@ from core.exceptions import (
 from core.services.ai_service import AIService
 from core.services.message_service import MessageService
 from core.services.outlook_api import OutlookAPIService, OutlookAPIError
+from core.outlook.subscription_sync import SubscriptionSyncService
 from core.models import OutlookAccount
 from intake.models import IntakeRequest, IntakeSource, OutboundAction, OutboundActionStatus, OutboundActionType, RiskLevel
 from intake.outbound import ClientOutboundService
@@ -609,3 +610,12 @@ def step3_send_outlook_reply(self, pipeline_data: dict) -> dict:
         }
 
 # =========================================================================
+@shared_task(name="core.renew_outlook_subscriptions")
+def renew_outlook_subscriptions_task(lookahead_hours: int = 24, extension_hours: int = 48, limit: int = 100) -> dict:
+    result = SubscriptionSyncService.renew_due(
+        lookahead_hours=lookahead_hours,
+        extension_hours=extension_hours,
+        limit=limit,
+    )
+    logger.info("Outlook subscription renewal scan completed: %s", result)
+    return result

@@ -1,3 +1,6 @@
+from datetime import timedelta
+
+from django.db.models import Q
 from django.utils import timezone
 import requests
 
@@ -22,6 +25,57 @@ class SubscriptionSyncService:
         except Exception as exc:
             if not cls._is_graph_not_found(exc):
                 raise
+
+    @classmethod
+    def renew_due(cls, lookahead_hours=24, extension_hours=48, limit=100):
+        now = timezone.now()
+        renew_before = now + timedelta(hours=lookahead_hours)
+        candidates = WebhookSubscription.objects.select_related("outlook").filter(
+            outlook__is_active=True,
+        ).filter(
+            Q(subscription_id__isnull=True)
+            | Q(subscription_id="")
+            | Q(expiration_date__lte=renew_before)
+            | Q(status__iexact="failed")
+            | Q(status__iexact="pending")
+        ).order_by("expiration_date")[:limit]
+
+        result = {"checked": 0, "renewed": 0, "failed": 0}
+        for subscription in candidates:
+            result["checked"] += 1
+            ok = cls.renew_one(subscription, extension_hours=extension_hours, now=now)
+            if ok:
+                result["renewed"] += 1
+            else:
+                result["failed"] += 1
+        return result
+
+    @classmethod
+    def renew_one(cls, subscription, extension_hours=48, now=None):
+        now = now or timezone.now()
+        current_expiration = subscription.expiration_date
+        subscription.expiration_date = now + timedelta(hours=extension_hours)
+
+        if not subscription.subscription_id or not current_expiration or current_expiration <= now:
+            cls.create(subscription)
+        else:
+            try:
+                response = GraphSubscriptionService.renew_subscription(subscription)
+            except Exception as exc:
+                if cls._is_graph_not_found(exc):
+                    cls.create(subscription)
+                else:
+                    cls._mark_failed(subscription, exc)
+                    return False
+            else:
+                WebhookSubscription.objects.filter(pk=subscription.pk).update(
+                    expiration_date=response["expirationDateTime"],
+                    status="ACTIVE",
+                    last_synced_at=timezone.now(),
+                    sync_error="",
+                )
+        refreshed = WebhookSubscription.objects.filter(pk=subscription.pk).values("status", "sync_error").first()
+        return bool(refreshed and refreshed["status"] == "ACTIVE" and not refreshed["sync_error"])
 
     @classmethod
     def create(cls, subscription):

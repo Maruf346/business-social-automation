@@ -217,12 +217,26 @@ CELERY_TASK_ALWAYS_EAGER = os.getenv("CELERY_TASK_ALWAYS_EAGER", "True").strip()
 CELERY_TASK_EAGER_PROPAGATES = os.getenv("CELERY_TASK_EAGER_PROPAGATES", "True").strip().lower() in ("true", "1", "yes")
 CELERY_PENDING_HOLD_REVIEW_INTERVAL_MINUTES = int(os.getenv("CELERY_PENDING_HOLD_REVIEW_INTERVAL_MINUTES", "60"))
 CELERY_PENDING_HOLD_REVIEW_LIMIT = int(os.getenv("CELERY_PENDING_HOLD_REVIEW_LIMIT", "20"))
+OUTLOOK_SUBSCRIPTION_RENEWAL_INTERVAL_MINUTES = int(os.getenv("OUTLOOK_SUBSCRIPTION_RENEWAL_INTERVAL_MINUTES", "360"))
+OUTLOOK_SUBSCRIPTION_RENEWAL_LOOKAHEAD_HOURS = int(os.getenv("OUTLOOK_SUBSCRIPTION_RENEWAL_LOOKAHEAD_HOURS", "24"))
+OUTLOOK_SUBSCRIPTION_RENEWAL_EXTENSION_HOURS = int(os.getenv("OUTLOOK_SUBSCRIPTION_RENEWAL_EXTENSION_HOURS", "48"))
+OUTLOOK_SUBSCRIPTION_RENEWAL_LIMIT = int(os.getenv("OUTLOOK_SUBSCRIPTION_RENEWAL_LIMIT", "100"))
 CELERY_BEAT_SCHEDULE = {}
 if env_bool("ENABLE_PENDING_HOLD_REVIEW_BEAT", True):
     CELERY_BEAT_SCHEDULE["notify-pending-holds"] = {
         "task": "intake.notify_pending_holds",
         "schedule": timedelta(minutes=CELERY_PENDING_HOLD_REVIEW_INTERVAL_MINUTES),
         "kwargs": {"limit": CELERY_PENDING_HOLD_REVIEW_LIMIT},
+    }
+if env_bool("ENABLE_OUTLOOK_SUBSCRIPTION_RENEWAL_BEAT", True):
+    CELERY_BEAT_SCHEDULE["renew-outlook-subscriptions"] = {
+        "task": "core.renew_outlook_subscriptions",
+        "schedule": timedelta(minutes=OUTLOOK_SUBSCRIPTION_RENEWAL_INTERVAL_MINUTES),
+        "kwargs": {
+            "lookahead_hours": OUTLOOK_SUBSCRIPTION_RENEWAL_LOOKAHEAD_HOURS,
+            "extension_hours": OUTLOOK_SUBSCRIPTION_RENEWAL_EXTENSION_HOURS,
+            "limit": OUTLOOK_SUBSCRIPTION_RENEWAL_LIMIT,
+        },
     }
 
 # =================Celery & Redis Config End================================

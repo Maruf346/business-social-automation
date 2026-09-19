@@ -340,6 +340,7 @@ Outlook inbound email text is normalized before persistence: HTML is converted t
 vCita webhook matching note: appointment webhooks can race the Telegram `/schedule` command because vCita may post `appointment/create` and `appointment/scheduled` before the backend has saved `vcita_booking_uid`. The handler retries briefly, extracts `entity_name` and `appointment_id`, and suppresses Telegram noise for all unmatched vCita events. Matched financial events still update the intake and notify Telegram.
 
 Outlook subscription renewal fix:
+- Outlook subscription renewal is automated through Celery Beat task `core.renew_outlook_subscriptions`. Defaults: run every 360 minutes, renew subscriptions expiring within 24 hours, and request a 48-hour extension. Manual fallback: `python manage.py renew_outlook_subscriptions --lookahead-hours 24 --extension-hours 48`.
 
 - `WebhookSubscription` saves now capture the previous row in `pre_save` so changes to notification URL, resource, client state, change type, or expiration date are correctly synced to Microsoft Graph in `post_save`.
 - If the previous Microsoft Graph subscription is already expired, the backend creates a fresh subscription instead of trying to renew the old one.
