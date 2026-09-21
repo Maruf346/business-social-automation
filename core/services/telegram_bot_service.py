@@ -54,6 +54,32 @@ class TelegramBotService:
         response.raise_for_status()
         return response.json()
 
+    def send_media_group(self, photos, chat_id=None, caption=""):
+        resolved_chat_id = chat_id or self.review_chat_id
+        if not self.bot_token:
+            raise ImproperlyConfigured("TELEGRAM_BOT_TOKEN is not configured.")
+        if not resolved_chat_id:
+            raise ImproperlyConfigured("TELEGRAM_REVIEW_CHAT_ID is not configured.")
+        if not photos:
+            raise ValueError("At least one photo is required to send a media group.")
+
+        media = []
+        for index, photo in enumerate(photos[:10]):
+            item = {"type": "photo", "media": photo}
+            if index == 0 and caption:
+                item["caption"] = caption
+                item["parse_mode"] = "HTML"
+            media.append(item)
+
+        url = f"https://api.telegram.org/bot{self.bot_token}/sendMediaGroup"
+        payload = {
+            "chat_id": resolved_chat_id,
+            "media": media,
+        }
+        response = requests.post(url, json=payload, timeout=30)
+        response.raise_for_status()
+        return response.json()
+
     def answer_callback_query(self, callback_query_id, text="", show_alert=False):
         url = f"https://api.telegram.org/bot{self.bot_token}/answerCallbackQuery"
         response = requests.post(
@@ -130,5 +156,3 @@ class TelegramBotService:
             "file_name": original_name,
             "path": abs_path,
         }
-
-

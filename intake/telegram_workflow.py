@@ -1553,22 +1553,23 @@ class TelegramWorkflowService:
     def _reference_image_section(self, intake: IntakeRequest) -> str:
         image_count = len(self._reference_image_urls(intake))
         value = "None" if image_count == 0 else f"{image_count} image(s) attached below."
-        return f"\n<b>Reference Image</b>\n{escape(value)}\n"
+        return f"\n<b>Reference Image(s):</b>\n{escape(value)}\n"
 
     def _send_reference_images(self, chat_id: int | str | None, intake: IntakeRequest) -> None:
         if not chat_id:
             return
         urls = self._reference_image_urls(intake)
-        total = len(urls)
-        for index, url in enumerate(urls, start=1):
-            try:
-                self.telegram.send_photo(
-                    chat_id=chat_id,
-                    photo=url,
-                    caption=f"Reference image {index}/{total} for Request #{intake.pk}",
-                )
-            except Exception:
-                logger.exception("Could not send reference image to Telegram for intake=%s", intake.pk)
+        if not urls:
+            return
+
+        caption = "<b>Reference Image(s):</b>"
+        try:
+            if len(urls) == 1:
+                self.telegram.send_photo(chat_id=chat_id, photo=urls[0], caption=caption)
+            else:
+                self.telegram.send_media_group(chat_id=chat_id, photos=urls, caption=caption)
+        except Exception:
+            logger.exception("Could not send reference images to Telegram for intake=%s", intake.pk)
 
     def _format_external_artist_offer_text(self, intake: IntakeRequest, artist: ArtistProfile) -> str:
         detail_lines = [
