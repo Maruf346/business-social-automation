@@ -26,6 +26,7 @@ from intake.models import (
     IntakeSource,
 )
 from lead.choices import SEND_BY
+from lead.models import MediaFile
 from intake.outbound import ClientOutboundService
 from vcita.models import VcitaScheduleProvider
 from vcita.scheduling import VcitaHoldResult, VcitaScheduleResult, VcitaSchedulingError, VcitaSchedulingService
@@ -54,6 +55,7 @@ class TelegramWorkflowService:
             response=response,
             artist=None,
         )
+        self._send_reference_images(chat_id=self.telegram.review_chat_id, intake=intake)
         return response
 
 
@@ -93,6 +95,8 @@ class TelegramWorkflowService:
             response=response,
             artist=intake.assigned_artist,
         )
+        if purpose == TelegramMessagePurpose.ARTIST_ASSIGNMENT:
+            self._send_reference_images(chat_id=intake.assigned_artist.telegram_chat_id, intake=intake)
         return response
 
     def handle_update(self, update: dict[str, Any]) -> dict[str, Any]:
@@ -801,6 +805,7 @@ class TelegramWorkflowService:
             response=response,
             artist=artist,
         )
+        self._send_reference_images(chat_id=artist.telegram_chat_id, intake=intake)
         HumanDecision.objects.create(
             intake=intake,
             actor=actor,
@@ -1521,6 +1526,50 @@ class TelegramWorkflowService:
             ]
         }
 
+    def _reference_image_urls(self, intake: IntakeRequest, limit: int = 10) -> list[str]:
+        messages = intake.lead.messages.filter(direction="Incoming")
+        if intake.conversation_id:
+            messages = messages.filter(conversation_id=intake.conversation_id)
+
+        media_files = (
+            MediaFile.objects.filter(message__in=messages, media_type="image")
+            .select_related("message")
+            .order_by("message__timestamp", "created_at")
+        )
+        urls: list[str] = []
+        for media in media_files:
+            url = media.download_url
+            if not url and media.file:
+                try:
+                    url = media.file.url
+                except Exception:
+                    url = ""
+            if url and url not in urls:
+                urls.append(url)
+            if len(urls) >= limit:
+                break
+        return urls
+
+    def _reference_image_section(self, intake: IntakeRequest) -> str:
+        image_count = len(self._reference_image_urls(intake))
+        value = "None" if image_count == 0 else f"{image_count} image(s) attached below."
+        return f"\n<b>Reference Image</b>\n{escape(value)}\n"
+
+    def _send_reference_images(self, chat_id: int | str | None, intake: IntakeRequest) -> None:
+        if not chat_id:
+            return
+        urls = self._reference_image_urls(intake)
+        total = len(urls)
+        for index, url in enumerate(urls, start=1):
+            try:
+                self.telegram.send_photo(
+                    chat_id=chat_id,
+                    photo=url,
+                    caption=f"Reference image {index}/{total} for Request #{intake.pk}",
+                )
+            except Exception:
+                logger.exception("Could not send reference image to Telegram for intake=%s", intake.pk)
+
     def _format_external_artist_offer_text(self, intake: IntakeRequest, artist: ArtistProfile) -> str:
         detail_lines = [
             f"Idea: {escape(intake.tattoo_idea or 'Unclear')}",
@@ -1545,18 +1594,17 @@ class TelegramWorkflowService:
             detail_lines.append(f"Preferred schedule: {escape(intake.appointment_date)} at {escape(intake.appointment_time)}")
         if intake.pending_hold_date and intake.pending_hold_time:
             detail_lines.append(f"Pending hold: {escape(intake.pending_hold_date)} at {escape(intake.pending_hold_time)}")
-        media_lines = self._external_offer_media_lines(intake)
-        if media_lines:
-            detail_lines.extend(media_lines)
         summary_section = ""
         if intake.latest_summary:
             summary_section = f"\n\n<b>Summary</b>\n{escape(intake.latest_summary)}"
+        reference_section = self._reference_image_section(intake)
         return (
             f"<b>Artist offer for Request #{intake.pk}</b>\n"
             f"Artist: {escape(artist.name)}\n"
             "Client contact is hidden until you accept.\n\n"
             f"{chr(10).join(detail_lines)}"
-            f"{summary_section}\n\n"
+            f"{summary_section}"
+            f"{reference_section}\n"
             "Please choose one option."
         )
 
@@ -1860,6 +1908,7 @@ class TelegramWorkflowService:
         summary_section = ""
         if intake.latest_summary:
             summary_section = f"\n<b>Summary</b>\n{escape(intake.latest_summary)}\n"
+        reference_section = self._reference_image_section(intake)
 
         status_section = ""
         if status_text:
@@ -1887,6 +1936,7 @@ class TelegramWorkflowService:
             f"Artist suggestion: {escape(intake.suggested_artist or 'Unclear')}\n"
             f"{chr(10).join(price_lines)}\n"
             f"{summary_section}"
+            f"{reference_section}"
             f"{status_section}"
             f"{draft_section}"
         )
@@ -1939,13 +1989,15 @@ class TelegramWorkflowService:
         summary_section = ""
         if include_summary and intake.latest_summary:
             summary_section = f"\n\n<b>Summary</b>\n{escape(intake.latest_summary)}"
+        reference_section = self._reference_image_section(intake) if include_summary else ""
 
         return (
             f"<b>Request #{intake.pk}</b>\n"
             f"{chr(10).join(self._format_client_identity_lines(intake))}\n"
             f"Source: {escape(intake.source)}\n"
             f"{chr(10).join(detail_lines)}"
-            f"{summary_section}\n\n"
+            f"{summary_section}"
+            f"{reference_section}\n"
             f"<b>New message</b>\n{escape(text or '')}"
             f"{media_note}\n\n"
             "Reply to this message to answer the client, or use:\n"

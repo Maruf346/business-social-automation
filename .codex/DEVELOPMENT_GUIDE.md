@@ -236,6 +236,7 @@ Scheduling:
 
 - AI returns `date` as `YYYY-MM-DD` and `time` as `HH:MM`; the backend stores those exact values as `appointment_date` and `appointment_time`.
 - New Telegram review cards show the suggested date/time when present, but do not show a Schedule button. Hoss/Nina must use `/hold` or `/schedule` with an explicit service code.
+- First Telegram group review cards, internal artist assignment cards, and external artist offer cards show `Reference Image` below Summary. The text avoids raw URLs; actual stored incoming image references are sent as Telegram photo messages immediately after the card.
 - Hoss/Nina creates a pending hold with `/hold REQUEST_ID SERVICE_CODE YYYY-MM-DD HH:MM`, for example `/hold 12 OCH 2026-09-04 14:30`. This blocks the Pending Appointments Google Calendar for up to one week while payment/final confirmation is outstanding.
 - After one week, Celery Beat automatically runs `intake.notify_pending_holds` on the configured interval. The task calls `notify_pending_holds`, asks the AI summary endpoint when available, and falls back to the stored intake summary.
 - Manual fallback: run `python manage.py notify_pending_holds` from the server/worker environment to send due review cards.

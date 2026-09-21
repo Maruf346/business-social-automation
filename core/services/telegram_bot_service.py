@@ -34,6 +34,26 @@ class TelegramBotService:
         response.raise_for_status()
         return response.json()
 
+    def send_photo(self, photo, chat_id=None, caption=""):
+        resolved_chat_id = chat_id or self.review_chat_id
+        if not self.bot_token:
+            raise ImproperlyConfigured("TELEGRAM_BOT_TOKEN is not configured.")
+        if not resolved_chat_id:
+            raise ImproperlyConfigured("TELEGRAM_REVIEW_CHAT_ID is not configured.")
+
+        url = f"https://api.telegram.org/bot{self.bot_token}/sendPhoto"
+        payload = {
+            "chat_id": resolved_chat_id,
+            "photo": photo,
+            "parse_mode": "HTML",
+        }
+        if caption:
+            payload["caption"] = caption
+
+        response = requests.post(url, json=payload, timeout=30)
+        response.raise_for_status()
+        return response.json()
+
     def answer_callback_query(self, callback_query_id, text="", show_alert=False):
         url = f"https://api.telegram.org/bot{self.bot_token}/answerCallbackQuery"
         response = requests.post(
