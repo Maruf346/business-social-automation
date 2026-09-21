@@ -1553,7 +1553,7 @@ class TelegramWorkflowService:
     def _reference_image_section(self, intake: IntakeRequest) -> str:
         image_count = len(self._reference_image_urls(intake))
         value = "None" if image_count == 0 else f"{image_count} image(s) attached below."
-        return f"\n<b>Reference Image(s):</b>\n{escape(value)}\n"
+        return f"\n<b>Reference Image(s) for Request #{intake.pk}:</b>\n{escape(value)}\n"
 
     def _send_reference_images(self, chat_id: int | str | None, intake: IntakeRequest) -> None:
         if not chat_id:
@@ -1562,7 +1562,7 @@ class TelegramWorkflowService:
         if not urls:
             return
 
-        caption = "<b>Reference Image(s):</b>"
+        caption = f"<b>Reference Image(s) for Request #{intake.pk}:</b>"
         try:
             if len(urls) == 1:
                 self.telegram.send_photo(chat_id=chat_id, photo=urls[0], caption=caption)
