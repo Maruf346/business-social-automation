@@ -232,6 +232,11 @@ Current behavior:
 - On the first paid webhook, the backend sends a client payment confirmation unless that webhook finalizes a pending hold; finalized holds send the client the appointment confirmation with service notes.
 - Unknown or unmatched vCita webhook payloads are stored with `unmatched` status for Admin panel review without Telegram noise. Ambiguous multiple-match or failed API lookup cases still notify Telegram because they need manual action.
 
+Outlook testing safety gate:
+
+- `site_config/settings.py` currently sets `OUTLOOK_REQUIRE_TEST_SUBJECT = True`, so inbound Outlook emails are processed only when the subject contains `test` case-insensitively. Non-matching Outlook emails are skipped before DB lead/message creation and never reach AI, Telegram, or outbound replies.
+- Before production launch, set `OUTLOOK_REQUIRE_TEST_SUBJECT = False` and deploy.
+
 Scheduling:
 
 - AI returns `date` as `YYYY-MM-DD` and `time` as `HH:MM`; the backend stores those exact values as `appointment_date` and `appointment_time`.

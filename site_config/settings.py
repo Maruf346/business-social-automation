@@ -221,6 +221,11 @@ OUTLOOK_SUBSCRIPTION_RENEWAL_INTERVAL_MINUTES = int(os.getenv("OUTLOOK_SUBSCRIPT
 OUTLOOK_SUBSCRIPTION_RENEWAL_LOOKAHEAD_HOURS = int(os.getenv("OUTLOOK_SUBSCRIPTION_RENEWAL_LOOKAHEAD_HOURS", "24"))
 OUTLOOK_SUBSCRIPTION_RENEWAL_EXTENSION_HOURS = int(os.getenv("OUTLOOK_SUBSCRIPTION_RENEWAL_EXTENSION_HOURS", "48"))
 OUTLOOK_SUBSCRIPTION_RENEWAL_LIMIT = int(os.getenv("OUTLOOK_SUBSCRIPTION_RENEWAL_LIMIT", "100"))
+
+# Temporary safety gate for client testing. While True, Outlook emails are processed
+# only when the subject contains the word "test". Set to False before production launch.
+OUTLOOK_REQUIRE_TEST_SUBJECT = True
+OUTLOOK_TEST_SUBJECT_KEYWORD = "test"
 CELERY_BEAT_SCHEDULE = {}
 if env_bool("ENABLE_PENDING_HOLD_REVIEW_BEAT", True):
     CELERY_BEAT_SCHEDULE["notify-pending-holds"] = {
@@ -379,5 +384,3 @@ LOGGING = {
 }
 # =================Logging Config================================
 # ==========================================================================================
-
-

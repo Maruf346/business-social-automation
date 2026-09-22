@@ -4,6 +4,7 @@ import logging
 import time
 
 from celery import chain, shared_task
+from django.conf import settings
 
 from core.exceptions import (
     AIServiceError,
@@ -322,6 +323,16 @@ def step1_fetch_and_save_email(self, outlook_account_id: int, message_id: str, r
         logger.info("Ignoring self-sent email from %s", sender_email)
         return {"pipeline_status": "skipped", "reason": "self_sent"}
 
+    if settings.OUTLOOK_REQUIRE_TEST_SUBJECT:
+        keyword = settings.OUTLOOK_TEST_SUBJECT_KEYWORD.lower()
+        if keyword not in (subject or "").lower():
+            logger.info(
+                "Ignoring Outlook email because subject does not contain %r: msg_id=%s subject=%r",
+                settings.OUTLOOK_TEST_SUBJECT_KEYWORD,
+                message_id,
+                subject,
+            )
+            return {"pipeline_status": "skipped", "reason": "outlook_test_subject_required"}
     # Strip HTML to plain text
     if body_type.lower() == "html":
         body_text = OutlookAPIService.strip_html_to_text(body_content)
