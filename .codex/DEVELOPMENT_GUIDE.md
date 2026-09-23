@@ -237,6 +237,9 @@ Outlook testing safety gate:
 - `site_config/settings.py` currently sets `OUTLOOK_REQUIRE_TEST_SUBJECT = True`, so inbound Outlook emails are processed only when the subject contains `test` case-insensitively. Non-matching Outlook emails are skipped before DB lead/message creation and never reach AI, Telegram, or outbound replies.
 - Before production launch, set `OUTLOOK_REQUIRE_TEST_SUBJECT = False` and deploy.
 
+AI intake field persistence:
+
+- Extended AI response fields are stored on `IntakeRequest` and `AIAnalysis`, then echoed back to AI under `existing_db_state.intake` on later analysis calls. This includes party/multi-entity, size status/description, artist preference mode, pricing requested, client/conversation/intake status, staff review required, and review reasons.
 Scheduling:
 
 - AI returns `date` as `YYYY-MM-DD` and `time` as `HH:MM`; the backend stores those exact values as `appointment_date` and `appointment_time`.

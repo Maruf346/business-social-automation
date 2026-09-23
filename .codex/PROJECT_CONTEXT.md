@@ -260,7 +260,7 @@ AI contract update on 2026-09-09:
 - Google Calendar repeated hold conflict checks use Python standard UTC conversion for Django 6 compatibility; repeating a hold for the same request should not crash when comparing the request own pending event.
 - Telegram `/price` keeps its confirmation message and also refreshes all active stored group review cards for that request so displayed Price/Price note stay current across repeated test cards.
 - Telegram review cards hide the preformatted Draft reply block after the AI reply has been approved or rejected; Edit Reply removes decision buttons but keeps the draft visible so Hoss can copy/reference it.
-- `client_name`, `preferred_artist`, `appointment_type`, `tattoo_project_type`, `auto_reply_allowed`, and `telegram_review_required` are persisted on both `IntakeRequest` and `AIAnalysis`.
+- AI extended intake fields are persisted on both `IntakeRequest` and `AIAnalysis` and sent back through `existing_db_state.intake`: `client_name`, `preferred_artist`, `appointment_type`, `tattoo_project_type`, `party_size`, `multi_entity_detected`, `complexity_notes`, `size_description`, `size_status`, `artist_preference_mode`, `pricing_requested`, `client_intent`, `conversation_status`, `intake_status`, `staff_review_required`, `review_reasons`, `auto_reply_allowed`, and `telegram_review_required`.
 - Telegram review/artist cards show client name when available and appointment type as `Preferred Appointment Type: Online` or `Preferred Appointment Type: Studio Visit`.
 - Telegram review is forced when AI returns `telegram_review_required=true` or `auto_reply_allowed=false`; low-risk auto-reply requires both `risk_level=low` and `auto_reply_allowed=true`.
 

@@ -21,6 +21,18 @@ class IntakeStateService:
         "preferred_artist",
         "appointment_type",
         "tattoo_project_type",
+        "party_size",
+        "multi_entity_detected",
+        "complexity_notes",
+        "size_description",
+        "size_status",
+        "artist_preference_mode",
+        "pricing_requested",
+        "client_intent",
+        "conversation_status",
+        "intake_status",
+        "staff_review_required",
+        "review_reasons",
         "suggested_artist",
         "confidence_level",
         "ai_reasoning",
@@ -91,6 +103,18 @@ class IntakeStateService:
                 "preferred_artist": intake.preferred_artist,
                 "appointment_type": intake.appointment_type,
                 "tattoo_project_type": intake.tattoo_project_type,
+                "party_size": intake.party_size,
+                "multi_entity_detected": intake.multi_entity_detected,
+                "complexity_notes": intake.complexity_notes,
+                "size_description": intake.size_description,
+                "size_status": intake.size_status,
+                "artist_preference_mode": intake.artist_preference_mode,
+                "pricing_requested": intake.pricing_requested,
+                "client_intent": intake.client_intent,
+                "conversation_status": intake.conversation_status,
+                "intake_status": intake.intake_status,
+                "staff_review_required": intake.staff_review_required,
+                "review_reasons": intake.review_reasons,
                 "suggested_artist": intake.suggested_artist,
                 "confidence_level": cls._choice_value(intake.confidence_level),
                 "ai_reasoning": intake.ai_reasoning,
@@ -193,6 +217,18 @@ class IntakeStateService:
             preferred_artist=normalized["preferred_artist"],
             appointment_type=normalized["appointment_type"],
             tattoo_project_type=normalized["tattoo_project_type"],
+            party_size=normalized["party_size"],
+            multi_entity_detected=normalized["multi_entity_detected"],
+            complexity_notes=normalized["complexity_notes"],
+            size_description=normalized["size_description"],
+            size_status=normalized["size_status"],
+            artist_preference_mode=normalized["artist_preference_mode"],
+            pricing_requested=normalized["pricing_requested"],
+            client_intent=normalized["client_intent"],
+            conversation_status=normalized["conversation_status"],
+            intake_status=normalized["intake_status"],
+            staff_review_required=normalized["staff_review_required"],
+            review_reasons=normalized["review_reasons"],
             suggested_artist=normalized["suggested_artist"],
             confidence_level=normalized["confidence_level"],
             ai_reasoning=normalized["ai_reasoning"],
@@ -226,6 +262,18 @@ class IntakeStateService:
         intake.preferred_artist = normalized["preferred_artist"]
         intake.appointment_type = normalized["appointment_type"]
         intake.tattoo_project_type = normalized["tattoo_project_type"]
+        intake.party_size = normalized["party_size"]
+        intake.multi_entity_detected = normalized["multi_entity_detected"]
+        intake.complexity_notes = normalized["complexity_notes"]
+        intake.size_description = normalized["size_description"]
+        intake.size_status = normalized["size_status"]
+        intake.artist_preference_mode = normalized["artist_preference_mode"]
+        intake.pricing_requested = normalized["pricing_requested"]
+        intake.client_intent = normalized["client_intent"]
+        intake.conversation_status = normalized["conversation_status"]
+        intake.intake_status = normalized["intake_status"]
+        intake.staff_review_required = normalized["staff_review_required"]
+        intake.review_reasons = normalized["review_reasons"]
         intake.suggested_artist = normalized["suggested_artist"]
         intake.confidence_level = normalized["confidence_level"]
         intake.ai_reasoning = normalized["ai_reasoning"]
@@ -256,6 +304,18 @@ class IntakeStateService:
                 "preferred_artist",
                 "appointment_type",
                 "tattoo_project_type",
+                "party_size",
+                "multi_entity_detected",
+                "complexity_notes",
+                "size_description",
+                "size_status",
+                "artist_preference_mode",
+                "pricing_requested",
+                "client_intent",
+                "conversation_status",
+                "intake_status",
+                "staff_review_required",
+                "review_reasons",
                 "suggested_artist",
                 "confidence_level",
                 "ai_reasoning",
@@ -300,6 +360,18 @@ class IntakeStateService:
             "preferred_artist": cls._as_string(data.get("preferred_artist")),
             "appointment_type": cls._normalize_appointment_type(data.get("appointment_type")),
             "tattoo_project_type": cls._as_string(data.get("tattoo_project_type")),
+            "party_size": cls._as_positive_int(data.get("party_size")),
+            "multi_entity_detected": cls._as_bool(data.get("multi_entity_detected"), default=False),
+            "complexity_notes": cls._as_string(data.get("complexity_notes")),
+            "size_description": cls._as_string(data.get("size_description")),
+            "size_status": cls._as_string(data.get("size_status")),
+            "artist_preference_mode": cls._as_string(data.get("artist_preference_mode")),
+            "pricing_requested": cls._as_bool(data.get("pricing_requested"), default=False),
+            "client_intent": cls._as_string(data.get("client_intent")),
+            "conversation_status": cls._as_string(data.get("conversation_status")),
+            "intake_status": cls._as_string(data.get("intake_status")),
+            "staff_review_required": cls._as_bool(data.get("staff_review_required"), default=False),
+            "review_reasons": cls._as_list(data.get("review_reasons")),
             "suggested_artist": cls._as_string(data.get("suggested_artist")),
             "confidence_level": confidence_level,
             "ai_reasoning": cls._as_string(data.get("ai_reasoning")),
@@ -358,6 +430,18 @@ class IntakeStateService:
             "preferred_artist": analysis.preferred_artist,
             "appointment_type": analysis.appointment_type,
             "tattoo_project_type": analysis.tattoo_project_type,
+            "party_size": analysis.party_size,
+            "multi_entity_detected": analysis.multi_entity_detected,
+            "complexity_notes": analysis.complexity_notes,
+            "size_description": analysis.size_description,
+            "size_status": analysis.size_status,
+            "artist_preference_mode": analysis.artist_preference_mode,
+            "pricing_requested": analysis.pricing_requested,
+            "client_intent": analysis.client_intent,
+            "conversation_status": analysis.conversation_status,
+            "intake_status": analysis.intake_status,
+            "staff_review_required": analysis.staff_review_required,
+            "review_reasons": analysis.review_reasons,
             "auto_reply_allowed": analysis.auto_reply_allowed,
             "telegram_review_required": analysis.telegram_review_required,
             "ai_reasoning": analysis.ai_reasoning,
@@ -386,6 +470,18 @@ class IntakeStateService:
         if isinstance(value, list):
             return value
         return [value]
+
+    @staticmethod
+    def _as_positive_int(value: Any) -> int | None:
+        if value in (None, ""):
+            return None
+        try:
+            normalized = int(value)
+        except (TypeError, ValueError):
+            return None
+        if normalized < 1:
+            return None
+        return normalized
 
     @staticmethod
     def _as_date_string(value: Any) -> str:
