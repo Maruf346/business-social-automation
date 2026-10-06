@@ -263,7 +263,7 @@ AI contract update on 2026-09-09:
 - AI extended intake fields are persisted on both `IntakeRequest` and `AIAnalysis` and sent back through `existing_db_state.intake`: `client_name`, `preferred_artist`, `appointment_type`, `tattoo_project_type`, `party_size`, `multi_entity_detected`, `complexity_notes`, `size_description`, `size_status`, `artist_preference_mode`, `pricing_requested`, `client_intent`, `conversation_status`, `intake_status`, `staff_review_required`, `review_reasons`, `auto_reply_allowed`, and `telegram_review_required`.
 - Telegram review/artist cards show client name when available and appointment type as `Preferred Appointment Type: Online` or `Preferred Appointment Type: Studio Visit`.
 - Telegram review is forced when AI returns `telegram_review_required=true` or `auto_reply_allowed=false`; low-risk auto-reply requires both `risk_level=low` and `auto_reply_allowed=true`.
-- AI may also return an explicit client-send gate using the exact field `Auto-reply: false`. The backend does not send this field to AI or persist it; it only uses the response value to suppress client-facing auto-replies/waiting messages. Existing DB updates and Telegram review cards still continue when review is required.
+- AI may also return an explicit client-send gate using the exact field `Auto-reply: false`. The backend does not send this field to AI or persist it; it only uses the response value to suppress client-facing auto-replies/waiting messages. Existing DB updates and Telegram review cards still continue when review is required. AI-failure fallback responses set `Auto-reply: false` to prevent generic fallback replies from reaching clients.
 
 ## Human Roles
 

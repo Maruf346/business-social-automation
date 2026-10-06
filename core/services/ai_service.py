@@ -42,6 +42,7 @@ class AIService:
             return {
                 "draft_reply": _FALLBACK_REPLY,
                 "risk_level": "low",
+                "Auto-reply": False,
             }
 
         payload = self._build_payload(current_message, chat_history, lead, image_urls, existing_db_state, message_source)

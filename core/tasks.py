@@ -59,7 +59,7 @@ def process_message_reply(self, incoming_message_id: int, lead_id: int, waba_id:
         waba = WhatsAppAccount.objects.get(pk=waba_id)
         incoming_msg = Message.objects.get(pk=incoming_message_id)
     except (Lead.DoesNotExist, WhatsAppAccount.DoesNotExist, Message.DoesNotExist) as exc:
-        logger.error("DB lookup failed â€” aborting task: %s", exc)
+        logger.error("DB lookup failed - aborting task: %s", exc)
         return {"status": "aborted", "reason": str(exc)}
 
     # Download media if present 
@@ -134,6 +134,7 @@ def process_message_reply(self, incoming_message_id: int, lead_id: int, waba_id:
         reply_text = {
             "draft_reply": _AI_FALLBACK_REPLY,
             "risk_level": "low",
+            "Auto-reply": False,
         }
         draft_reply = _AI_FALLBACK_REPLY
 
@@ -309,7 +310,7 @@ def step1_fetch_and_save_email(self, outlook_account_id: int, message_id: str, r
     try:
         outlook_account = OutlookAccount.objects.get(pk=outlook_account_id)
     except OutlookAccount.DoesNotExist as exc:
-        logger.error("OutlookAccount id=%s not found — aborting", outlook_account_id)
+        logger.error("OutlookAccount id=%s not found - aborting", outlook_account_id)
         return {"pipeline_status": "aborted", "reason": str(exc)}
 
     outlook_svc = OutlookAPIService(outlook_account)
@@ -480,6 +481,7 @@ def step2_generate_ai_reply(self, pipeline_data: dict) -> dict:
         reply_text = {
             "draft_reply": draft_reply,
             "risk_level": "low",
+            "Auto-reply": False,
         }
 
     ai_analysis = IntakeStateService.record_ai_response(
