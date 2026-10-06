@@ -147,20 +147,29 @@ def process_message_reply(self, incoming_message_id: int, lead_id: int, waba_id:
     )
 
     risk_level = ai_analysis.risk_level
+    ai_auto_reply_disabled = IntakeStateService.ai_explicitly_disables_auto_reply(reply_text)
     review_required = ai_analysis.telegram_review_required or not ai_analysis.auto_reply_allowed or risk_level in (RiskLevel.HIGH, RiskLevel.MEDIUM, RiskLevel.UNKNOWN)
     if review_required:
-        try:
-            ClientOutboundService.send_intake_reply(
-                intake=intake,
-                text=(
-                    "Thank you for your message. "
-                    "Our team is reviewing your request. "
-                    "We'll get back to you shortly."
-                ),
-                action_type=OutboundActionType.WAITING_MESSAGE,
+        if ai_auto_reply_disabled:
+            logger.info(
+                "AI disabled client auto-reply for WhatsApp lead=%s msg=%s intake=%s; keeping review flow without waiting message.",
+                lead_id,
+                incoming_msg_id,
+                intake.pk,
             )
-        except Exception:
-            logger.exception("Failed to send waiting message.")
+        else:
+            try:
+                ClientOutboundService.send_intake_reply(
+                    intake=intake,
+                    text=(
+                        "Thank you for your message. "
+                        "Our team is reviewing your request. "
+                        "We'll get back to you shortly."
+                    ),
+                    action_type=OutboundActionType.WAITING_MESSAGE,
+                )
+            except Exception:
+                logger.exception("Failed to send waiting message.")
         
         # Send message in Telegram Group for Confimration====
         history = MessageService.get_chat_history(lead)
@@ -188,6 +197,21 @@ def process_message_reply(self, incoming_message_id: int, lead_id: int, waba_id:
             "ai_analysis_id": ai_analysis.pk,
         }
     elif risk_level in ("low",) and ai_analysis.auto_reply_allowed:
+        if ai_auto_reply_disabled:
+            logger.info(
+                "AI disabled client auto-reply for WhatsApp lead=%s msg=%s intake=%s. No client reply sent.",
+                lead_id,
+                incoming_msg_id,
+                intake.pk,
+            )
+            return {
+                "status": "auto_reply_disabled_by_ai",
+                "lead_id": lead_id,
+                "incoming_msg_id": incoming_msg_id,
+                "intake_id": intake.pk,
+                "ai_analysis_id": ai_analysis.pk,
+            }
+
         # Save outgoing message 
         outgoing = None
 
@@ -471,6 +495,7 @@ def step2_generate_ai_reply(self, pipeline_data: dict) -> dict:
     pipeline_data["risk_level"] = risk_level
     pipeline_data["intake_id"] = intake.pk
     pipeline_data["ai_analysis_id"] = ai_analysis.pk
+    pipeline_data["ai_auto_reply_disabled"] = IntakeStateService.ai_explicitly_disables_auto_reply(reply_text)
     review_required = ai_analysis.telegram_review_required or not ai_analysis.auto_reply_allowed or risk_level in (RiskLevel.HIGH, RiskLevel.MEDIUM, RiskLevel.UNKNOWN)
     pipeline_data["review_required"] = review_required
     if review_required:
@@ -495,6 +520,16 @@ def step2_generate_ai_reply(self, pipeline_data: dict) -> dict:
 
         pipeline_data["summary"] = summary
         # pipeline_data["pipeline_status"] = "stop"
+        return pipeline_data
+
+    if pipeline_data.get("ai_auto_reply_disabled"):
+        logger.info(
+            "AI disabled client auto-reply for Outlook lead=%s msg=%s intake=%s. No client reply sent.",
+            lead_id,
+            pipeline_data["message_id"],
+            intake.pk,
+        )
+        pipeline_data["pipeline_status"] = "auto_reply_disabled_by_ai"
         return pipeline_data
 
     # Save outgoing draft
@@ -539,22 +574,30 @@ def step3_send_outlook_reply(self, pipeline_data: dict) -> dict:
     review_required = pipeline_data.get("review_required") or risk_level in (RiskLevel.HIGH, RiskLevel.MEDIUM, RiskLevel.UNKNOWN)
     if review_required:
         summary = pipeline_data.get("summary")
-        try:
-            ClientOutboundService.send_intake_reply(
-                intake=IntakeRequest.objects.get(pk=pipeline_data["intake_id"]),
-                text=(
-                    "Thank you for your message. "
-                    "Our team is reviewing your request. "
-                    "We'll get back to you shortly."
-                ),
-                action_type=OutboundActionType.WAITING_MESSAGE,
+        intake = IntakeRequest.objects.get(pk=pipeline_data["intake_id"])
+        if pipeline_data.get("ai_auto_reply_disabled"):
+            logger.info(
+                "AI disabled client auto-reply for Outlook msg=%s intake=%s; keeping review flow without waiting message.",
+                message_id,
+                intake.pk,
             )
-            logger.info("Outlook reply sent for email id=%s", message_id)
-        except Exception:
-            logger.exception("Failed to send waiting message.")
+        else:
+            try:
+                ClientOutboundService.send_intake_reply(
+                    intake=intake,
+                    text=(
+                        "Thank you for your message. "
+                        "Our team is reviewing your request. "
+                        "We'll get back to you shortly."
+                    ),
+                    action_type=OutboundActionType.WAITING_MESSAGE,
+                )
+                logger.info("Outlook reply sent for email id=%s", message_id)
+            except Exception:
+                logger.exception("Failed to send waiting message.")
 
         TelegramWorkflowService().send_review_card(
-            intake=IntakeRequest.objects.get(pk=pipeline_data["intake_id"]),
+            intake=intake,
             summary=summary,
         )
         logger.info("Waiting for human approval.")

@@ -343,6 +343,8 @@ S3 media access note: with `AWS_QUERYSTRING_AUTH=False`, the S3 bucket/prefix mu
 
 Current AI response fields persisted by the backend include `client_name`, `preferred_artist`, `appointment_type`, `tattoo_project_type`, `auto_reply_allowed`, and `telegram_review_required` in addition to the earlier tattoo details, risk, summary, price, date/time, and draft reply fields.
 
+AI can return an explicit client-send gate using the exact field `Auto-reply`. When that value is false, the backend suppresses client-facing auto-replies and waiting messages only. It does not persist the gate, does not send it in future AI payloads, and does not suppress Telegram review when the existing review rules require staff handling.
+
 
 Outlook inbound email text is normalized before persistence: HTML is converted to text, then common quoted-reply markers such as `On ... wrote:`, `From:`, `Sent:`, `To:`, `Subject:`, and original-message separators are pruned. `Message.raw_payload` still stores the full Graph payload for debugging.
 

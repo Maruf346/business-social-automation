@@ -393,6 +393,12 @@ class IntakeStateService:
             "telegram_review_required": cls._as_bool(data.get("telegram_review_required"), default=False),
         }
 
+    @classmethod
+    def ai_explicitly_disables_auto_reply(cls, response: dict[str, Any]) -> bool:
+        if not isinstance(response, dict) or "Auto-reply" not in response:
+            return False
+        return not cls._as_bool(response.get("Auto-reply"), default=True)
+
     @staticmethod
     def _previous_image_urls(
         lead: Lead,
