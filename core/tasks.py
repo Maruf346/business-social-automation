@@ -155,7 +155,7 @@ def process_message_reply(self, incoming_message_id: int, lead_id: int, waba_id:
             logger.info(
                 "AI disabled client auto-reply for WhatsApp lead=%s msg=%s intake=%s; keeping review flow without waiting message.",
                 lead_id,
-                incoming_msg_id,
+                incoming_message_id,
                 intake.pk,
             )
         else:
@@ -202,13 +202,13 @@ def process_message_reply(self, incoming_message_id: int, lead_id: int, waba_id:
             logger.info(
                 "AI disabled client auto-reply for WhatsApp lead=%s msg=%s intake=%s. No client reply sent.",
                 lead_id,
-                incoming_msg_id,
+                incoming_message_id,
                 intake.pk,
             )
             return {
                 "status": "auto_reply_disabled_by_ai",
                 "lead_id": lead_id,
-                "incoming_msg_id": incoming_msg_id,
+                "incoming_message_id": incoming_message_id,
                 "intake_id": intake.pk,
                 "ai_analysis_id": ai_analysis.pk,
             }
