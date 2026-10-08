@@ -1999,7 +1999,7 @@ class TelegramWorkflowService:
             f"{chr(10).join(detail_lines)}"
             f"{summary_section}"
             f"{reference_section}\n"
-            f"<b>New message</b>\n{escape(text or '')}"
+            f"\n\n<b>New message</b>\n{escape(text or '')}"
             f"{media_note}\n\n"
             "Reply to this message to answer the client, or use:\n"
             f"<code>/reply {intake.pk} your message</code>"
