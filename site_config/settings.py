@@ -328,7 +328,7 @@ WHATSAPP = {
 AI_SERVICE = {
     "API_URL": os.getenv("AI_API_URL", ""),
     "SUMMARY_API_URL": os.getenv("AI_SUMMARY_API_URL", os.getenv("AI_SUMMAERY_API_URL", "")),
-    "TIMEOUT": int(os.getenv("AI_API_TIMEOUT", "30")),
+    "TIMEOUT": int(os.getenv("AI_API_TIMEOUT", "90")),
     "CHAT_HISTORY_LIMIT": int(os.getenv("AI_CHAT_HISTORY_LIMIT", "20")),
 }
 
